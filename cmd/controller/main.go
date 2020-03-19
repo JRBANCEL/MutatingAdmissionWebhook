@@ -62,7 +62,11 @@ func main() {
 		30 * time.Second,
 		kubeinformers.WithNamespace("node-ip-webhook"))
 
-	controller := NewController(client, informerFactory.Core().V1().Secrets())
+	controller := NewController(
+		client,
+		informerFactory.Core().V1().Secrets(),
+		"node-ip-webhook",
+		"node-ip-webhook-certs")
 
 	informerFactory.Start(stopCh)
 

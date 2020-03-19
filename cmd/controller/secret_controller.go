@@ -33,8 +33,6 @@ const (
 	// MessageResourceSynced is the message used for an Event fired when a Foo
 	// is synced successfully
 	MessageResourceSynced = "Foo synced successfully"
-
-
 )
 
 var (
@@ -44,6 +42,9 @@ var (
 // Controller is the controller implementation for Foo resources
 type SecretController struct {
 	kubeClient kubernetes.Interface
+
+	secretNamespace string
+	secretName      string
 
 	secretsLister corelisters.SecretLister
 	secretsSynced cache.InformerSynced
@@ -57,7 +58,9 @@ type SecretController struct {
 // NewController returns a new sample controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	secretInformer coreinformers.SecretInformer) *SecretController {
+	secretInformer coreinformers.SecretInformer,
+	secretNamespace string,
+	secretName string) *SecretController {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -70,10 +73,12 @@ func NewController(
 	//recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &SecretController{
-		kubeClient:     kubeclientset,
-		secretsLister: secretInformer.Lister(),
-		secretsSynced: secretInformer.Informer().HasSynced,
-		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Webhook-Secret"),
+		kubeClient:      kubeclientset,
+		secretNamespace: secretNamespace,
+		secretName:      secretName,
+		secretsLister:   secretInformer.Lister(),
+		secretsSynced:   secretInformer.Informer().HasSynced,
+		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Webhook-Secret"),
 		//recorder:          recorder,
 	}
 
@@ -86,13 +91,13 @@ func NewController(
 	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.handleObject,
 		UpdateFunc: func(old, new interface{}) {
-			newDepl := new.(*corev1.Secret)
-			oldDepl := old.(*corev1.Secret)
-			if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-				// Periodic resync will send update events for all known Deployments.
-				// Two different versions of the same Deployment will always have different RVs.
-				return
-			}
+			//newDepl := new.(*corev1.Secret)
+			//oldDepl := old.(*corev1.Secret)
+			//if newDepl.ResourceVersion == oldDepl.ResourceVersion {
+			//	// Periodic resync will send update events for all known Deployments.
+			//	// Two different versions of the same Deployment will always have different RVs.
+			//	return
+			//}
 			controller.handleObject(new)
 		},
 		DeleteFunc: controller.handleObject,
@@ -123,10 +128,20 @@ func (c *SecretController) Run(stopCh <-chan struct{}) error {
 	go wait.Until(c.runWorker, time.Second, stopCh)
 
 	klog.Info("Started workers")
+	go func() {
+		wait.PollImmediateUntil(1*time.Hour, func() (bool, error) {
+			c.triggerReconciliation()
+			return false, nil
+		}, stopCh)
+	}()
 	<-stopCh
 	klog.Info("Shutting down workers")
 
 	return nil
+}
+
+func (c *SecretController) triggerReconciliation() {
+	c.workqueue.Add(struct{}{})
 }
 
 // runWorker is a long-running function that will continually call the
@@ -156,20 +171,20 @@ func (c *SecretController) processNextWorkItem() bool {
 		// period.
 		defer c.workqueue.Done(obj)
 		var key string
-		var ok bool
+		//var ok bool
 		// We expect strings to come off the workqueue. These are of the
 		// form namespace/name. We do this as the delayed nature of the
 		// workqueue means the items in the informer cache may actually be
 		// more up to date that when the item was initially put onto the
 		// workqueue.
-		if key, ok = obj.(string); !ok {
-			// As the item in the workqueue is actually invalid, we call
-			// Forget here else we'd go into a loop of attempting to
-			// process a work item that is invalid.
-			c.workqueue.Forget(obj)
-			utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
-			return nil
-		}
+		//if key, ok = obj.(string); !ok {
+		//	// As the item in the workqueue is actually invalid, we call
+		//	// Forget here else we'd go into a loop of attempting to
+		//	// process a work item that is invalid.
+		//	c.workqueue.Forget(obj)
+		//	utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
+		//	return nil
+		//}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// Foo resource to be synced.
 		if err := c.syncHandler(key); err != nil {
@@ -191,42 +206,61 @@ func (c *SecretController) processNextWorkItem() bool {
 	return true
 }
 
+func (c *SecretController) createSecret() error {
+	data, err := generateSecretData()
+	if err != nil {
+		return fmt.Errorf("failed to generate the Secret data: %w", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:                  c.secretNamespace,
+			Name:                       c.secretName,
+		},
+		Data:data,
+	}
+	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Create(secret)
+	return err
+}
+
+func (c *SecretController) updateSecret(secret *corev1.Secret) error {
+	data, err := generateSecretData()
+	if err != nil {
+		return fmt.Errorf("failed to generate the Secret data: %w", err)
+	}
+
+	secret = secret.DeepCopy()
+	secret.Data = data
+	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Update(secret)
+	return err
+}
+
+
 // syncHandler compares the actual state with the desired, and attempts to
 // converge the two. It then updates the Status block of the Foo resource
 // with the current status of the resource.
 func (c *SecretController) syncHandler(key string) error {
-	// Convert the namespace/name string into a distinct namespace and name
-	// namespace, name, err := cache.SplitMetaNamespaceKey(key)
-	// if err != nil {
-	// 	utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-	// 	return nil
-	// }
-
-	namespace := "node-ip"
-	name := "node-ip-webhook-certs"
-
-	secret, err := c.secretsLister.Secrets(namespace).Get(name)
+	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Create the secret
-			//utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
-			//return nil
+			// If the Secret doesn't exist, it needs to be created.
+			klog.Infof("The Secret %s/%s was not found, creating it.", c.secretNamespace, c.secretName)
+			return c.createSecret()
 		}
-
 		return err
 	}
 
-	// Check expiration
-	expiration, err := getCertificateExpiration(secret)
+	// If the Secret is close to expiration, it needs to be refreshed
+	durationBeforeExpiration, err := getDurationBeforeExpiration(secret)
 	if err != nil {
 		return err
 	}
-	if time.Now().Add(expirationThreshold).After(expiration) {
-		klog.Infof("The certificate is expiring soon (%v), refreshing it.", expiration.Sub(time.Now()))
+	if durationBeforeExpiration < expirationThreshold {
+		klog.Infof("The certificate is expiring soon (%v), refreshing it.", durationBeforeExpiration)
+		return c.updateSecret(secret)
 	}
 
-	klog.Infof("The certificate is not expiring soon (%v), doing nothing.", expiration.Sub(time.Now()))
-
+	klog.Infof("The certificate is not expiring soon (%v), doing nothing.", durationBeforeExpiration)
 
 	//deploymentName := foo.Spec.DeploymentName
 	//if deploymentName == "" {
@@ -333,10 +367,10 @@ func (c *SecretController) handleObject(obj interface{}) {
 		}
 		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
 	}
-	if object.GetNamespace() == "default" &&
-		object.GetName() == "node-ip-webhook" {
-		klog.V(4).Infof("Processing object: %s/%s", object.GetNamespace(), object.GetName())
-		c.workqueue.Add(struct {}{})
+	klog.V(4).Infof("Processing object: %s/%s", object.GetNamespace(), object.GetName())
+	if object.GetNamespace() == "node-ip-webhook" &&
+		object.GetName() == "node-ip-webhook-certs" {
+		c.workqueue.Add(struct{}{})
 	}
 	//if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
 	//	// If this object is not owned by a Foo, we should not do anything more
@@ -394,20 +428,3 @@ func (c *SecretController) handleObject(obj interface{}) {
 //	}
 //}
 
-func getCertificateExpiration(secret *corev1.Secret) (time.Time, error) {
-	return time.Now().Add(5 * time.Minute), nil
-//	certPEM, ok := secret.Data[certKey]
-//		if !ok {
-//			return false, nil, fmt.Errorf("the Secret doesn't contain an entry for %q", certKey)
-//		}
-//		certAsn1, _ := pem.Decode(certPEM)
-//		if certAsn1 == nil {
-//			return false, nil, fmt.Errorf("failed to parse certificate PEM")
-//		}
-//		cert, err := x509.ParseCertificate(certAsn1.Bytes)
-//		if err != nil {
-//			return false, nil, fmt.Errorf("failed to parse the certificate ASN.1: %v", err)
-//		}
-//
-//		return cert.
-}

@@ -7,8 +7,8 @@ webhooks:
   - v1beta1
   clientConfig:
     service:
-      name: node-ip-webhook
-      namespace: default
+      namespace: node-ip-webhook
+      name: webhook
       path: "/mutate"
   failurePolicy: Fail
   name: node.ip.webhook

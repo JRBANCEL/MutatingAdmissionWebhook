@@ -31,6 +31,39 @@ roleRef:
   name: node-ip-webhook-controller-secret
   apiGroup: rbac.authorization.k8s.io
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: node-ip-webhook
+  name: webhook
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: node-ip-webhook
+  name: webhook-secret-read
+  labels:
+  #rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  #resourceNames: ["node-ip-webhook-certs"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: node-ip-webhook
+  name: webhook-secret-read
+subjects:
+- kind: ServiceAccount
+  namespace: node-ip-webhook
+  name: webhook
+roleRef:
+  kind: Role
+  name: webhook-secret-read
+  apiGroup: rbac.authorization.k8s.io
+---
 #kind: ClusterRole
 #apiVersion: rbac.authorization.k8s.io/v1
 #metadata:

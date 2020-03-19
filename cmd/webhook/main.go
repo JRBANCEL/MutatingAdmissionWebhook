@@ -1,26 +1,22 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
+	"crypto/tls"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/big"
-	"net"
 	"net/http"
 	"strings"
-	"time"
 
 	admiv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
 )
 
 const (
@@ -32,9 +28,14 @@ var (
 )
 
 func main() {
-	certPath, keyPath, err := generateCertificate([]string{"node-ip-webhook.default.svc"})
+	config, err := clientcmd.BuildConfigFromFlags("", "")
 	if err != nil {
-		log.Fatalf("Failed to create the self-signed TLS certificate: %v", err)
+		log.Fatalf("Error building Kubernetes config: %v", err)
+	}
+
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatalf("Error building Kubernetes client: %v", err)
 	}
 
 	mux := http.NewServeMux()
@@ -42,8 +43,26 @@ func main() {
 	server := &http.Server{
 		Addr:    ":10250",
 		Handler: mux,
+		TLSConfig:&tls.Config{
+			GetCertificate: func(info *tls.ClientHelloInfo) (certificate *tls.Certificate, e error) {
+				klog.Info("GetCertificate")
+				secret, err := client.CoreV1().Secrets("node-ip-webhook").Get("node-ip-webhook-certs", metav1.GetOptions{})
+				if err != nil {
+					log.Fatalf("Failed to get Secret %s/%s : %v", "node-ip-webhook", "node-ip-webhook-certs", err)
+				}
+
+				// TODO: validate Secret entries
+				//if ok := secret["cert.pem"]
+
+				cert, err := tls.X509KeyPair(secret.Data["cert.pem"], secret.Data["key.pem"])
+				if err != nil {
+					log.Fatalf("Failed to parse Secret %s/%s : %v", "node-ip-webhook", "node-ip-webhook-certs", err)
+				}
+				return &cert, nil
+			},
+		},
 	}
-	log.Fatal(server.ListenAndServeTLS(certPath, keyPath))
+	log.Fatal(server.ListenAndServeTLS("", ""))
 }
 
 func MutateFunc(w http.ResponseWriter, r *http.Request) {
@@ -164,64 +183,64 @@ func shouldMutate(pod corev1.Pod) bool {
 
 // generateCertificate generates a self-signed certificate for the provided hosts and returns
 // the PEM encoded certificate and private key.
-func generateCertificate(hosts []string) (string, string, error) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate private key: %w", err)
-	}
-
-	notBefore := time.Now().Add(-5 * time.Minute)
-	notAfter := notBefore.Add(2 * time.Hour)
-
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate serial number: %w", err)
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"Knative Serving"},
-		},
-		NotBefore: notBefore,
-		NotAfter:  notAfter,
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-
-	for _, h := range hosts {
-		if ip := net.ParseIP(h); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, h)
-		}
-	}
-
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create the certificate: %w", err)
-	}
-
-	certFile, err := ioutil.TempFile("", "cert-*")
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create temporary file for the certificate: %v", err)
-	}
-	defer certFile.Close()
-	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		return "", "", fmt.Errorf("failed to encode the certificate: %w", err)
-	}
-
-	keyFile, err := ioutil.TempFile("", "key-*")
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create temporary file for the private key: %v", err)
-	}
-	defer keyFile.Close()
-	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}); err != nil {
-		return "", "", fmt.Errorf("failed to encode the private key: %w", err)
-	}
-
-	return certFile.Name(), keyFile.Name(), nil
-}
+//func generateCertificate(hosts []string) (string, string, error) {
+//	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+//	if err != nil {
+//		return "", "", fmt.Errorf("failed to generate private key: %w", err)
+//	}
+//
+//	notBefore := time.Now().Add(-5 * time.Minute)
+//	notAfter := notBefore.Add(2 * time.Hour)
+//
+//	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+//	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+//	if err != nil {
+//		return "", "", fmt.Errorf("failed to generate serial number: %w", err)
+//	}
+//
+//	template := x509.Certificate{
+//		SerialNumber: serialNumber,
+//		Subject: pkix.Name{
+//			Organization: []string{"Knative Serving"},
+//		},
+//		NotBefore: notBefore,
+//		NotAfter:  notAfter,
+//
+//		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+//		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+//		BasicConstraintsValid: true,
+//	}
+//
+//	for _, h := range hosts {
+//		if ip := net.ParseIP(h); ip != nil {
+//			template.IPAddresses = append(template.IPAddresses, ip)
+//		} else {
+//			template.DNSNames = append(template.DNSNames, h)
+//		}
+//	}
+//
+//	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+//	if err != nil {
+//		return "", "", fmt.Errorf("failed to create the certificate: %w", err)
+//	}
+//
+//	certFile, err := ioutil.TempFile("", "cert-*")
+//	if err != nil {
+//		return "", "", fmt.Errorf("failed to create temporary file for the certificate: %v", err)
+//	}
+//	defer certFile.Close()
+//	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
+//		return "", "", fmt.Errorf("failed to encode the certificate: %w", err)
+//	}
+//
+//	keyFile, err := ioutil.TempFile("", "key-*")
+//	if err != nil {
+//		return "", "", fmt.Errorf("failed to create temporary file for the private key: %v", err)
+//	}
+//	defer keyFile.Close()
+//	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}); err != nil {
+//		return "", "", fmt.Errorf("failed to encode the private key: %w", err)
+//	}
+//
+//	return certFile.Name(), keyFile.Name(), nil
+//}
