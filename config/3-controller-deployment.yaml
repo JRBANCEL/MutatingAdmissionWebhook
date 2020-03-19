@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: node-ip-webhook
+  name: node-ip-webhook-controller
+  labels:
+    app: node-ip-webhook-controller
+spec:
+  selector:
+    matchLabels:
+      app: node-ip-webhook-controller
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: node-ip-webhook-controller
+    spec:
+      serviceAccountName: node-ip-webhook-controller
+      containers:
+        - name: webhook
+          image: github.com/JRBANCEL/MutatingAdmissionWebhook/cmd/controller

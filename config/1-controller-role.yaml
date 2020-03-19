@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: node-ip-webhook
+  name: node-ip-webhook-controller
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: node-ip-webhook
+  name: node-ip-webhook-controller-secret
+  labels:
+    #rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    #resourceNames: ["node-ip-webhook-certs"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: node-ip-webhook
+  name: node-ip-webhook-controller-secret
+subjects:
+- kind: ServiceAccount
+  namespace: node-ip-webhook
+  name: node-ip-webhook-controller
+roleRef:
+  kind: Role
+  name: node-ip-webhook-controller-secret
+  apiGroup: rbac.authorization.k8s.io
+---
+#kind: ClusterRole
+#apiVersion: rbac.authorization.k8s.io/v1
+#metadata:
+#  name: node-ip-webhook-controller-webhook
+#  labels:
+#  #rbac.authorization.k8s.io/aggregate-to-admin: "true"
+#rules:
+#- apiGroups: [""]
+#  resources: ["mutatingwebhookconfigurations"]
+#  resourceNames: ["node-ip-webhook"]
+#  verbs: ["*"]
+#---
+#apiVersion: rbac.authorization.k8s.io/v1
+#kind: ClusterRoleBinding
+#metadata:
+#  name: knative-serving-controller-admin
+#  labels:
+#    serving.knative.dev/release: devel
+#subjects:
+#- kind: ServiceAccount
+#  name: controller
+#  namespace: knative-serving
+#roleRef:
+#  kind: ClusterRole
+#  name: knative-serving-admin
+#  apiGroup: rbac.authorization.k8s.io

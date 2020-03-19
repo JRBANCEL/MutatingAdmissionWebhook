@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-ip-webhook
+  labels:
+    app: node-ip-webhook 
+spec:
+  selector:
+    matchLabels:
+      app: node-ip-webhook
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: node-ip-webhook
+    spec:
+      containers:
+        - name: webhook
+          image: github.com/JRBANCEL/MutatingAdmissionWebhook/cmd/webhook
