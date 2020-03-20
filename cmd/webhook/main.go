@@ -17,10 +17,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+
+	"gomodules.xyz/jsonpatch/v2"
 )
 
 const (
 	jsonContentType = `application/json`
+	envVarName = "DD_AGENT_HOST"
 )
 
 var (
@@ -97,11 +100,6 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//	Response: &admiv1.AdmissionResponse{
-	//		UID: admissionReviewReq.Request.UID,
-	//	},
-	//}
-
 	var admissionReviewResp admiv1.AdmissionReview
 	resp, err := Mutate(admissionReviewReq.Request)
 	if err != nil {
@@ -124,7 +122,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 	encoder := json.NewEncoder(w)
 	encoder.Encode(&admissionReviewResp)
 	if err != nil {
-		log.Printf("failed to encode the response: %v", err)
+		klog.Errorf("failed to encode the response: %v", err)
 		return
 	}
 }
@@ -132,46 +130,63 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 func Mutate(req *admiv1.AdmissionRequest) (*admiv1.AdmissionResponse, error) {
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
-		return nil, fmt.Errorf("failed to decode raw object: %v", err)
+		return nil, fmt.Errorf("failed to decode raw object: %w", err)
 	}
+
+	resp := &admiv1.AdmissionResponse{Allowed: true}
 
 	if !shouldMutate(pod) {
-		log.Printf("Allowing Pod %s/%s because it is not a Knative Pod", pod.Namespace, pod.Name)
-		return &admiv1.AdmissionResponse{
-			Allowed:          true,
-		}, nil
+		log.Printf("Skipping Pod %s/%s because it is not a Knative Pod", req.Namespace, req.Name)
+		return resp, nil
+	}
+	log.Printf("Mutating Pod %s/%s because it is a Knative Pod", req.Namespace, req.Name)
+
+	for i, container := range pod.Spec.Containers {
+		// Skip the Knative Queue Proxy container
+		if container.Name == "queue-proxy" {
+			continue
+		}
+
+		// Find out if there is already an environment variable defined where we want to add one
+		found := false
+		for _, env := range container.Env {
+			if env.Name == envVarName {
+				klog.Warningf("Container %s already contains an environment variable entry for %s. Keeping the original value.", container, envVarName)
+				found = true
+				break
+			}
+		}
+
+		// Add the environment variable definition
+		if !found {
+			pod.Spec.Containers[i].Env = append(pod.Spec.Containers[i].Env, corev1.EnvVar{
+				Name:      envVarName,
+				Value:     "",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath:  "status.hostIP",
+					},
+				},
+			})
+		}
 	}
 
-	log.Printf("Mutating Pod %s/%s because it is a Knative Pod", pod.Namespace, pod.Name)
-	// var patchOps []patchOperation
-	// // Apply the admit() function only for non-Kubernetes namespaces. For objects in Kubernetes namespaces, return
-	// // an empty set of patch operations.
-	// if !isKubeNamespace(admissionReviewReq.Request.Namespace) {
-	// 	patchOps, err = admit(admissionReviewReq.Request)
-	// }
-
-	// if err != nil {
-	// 	// If the handler returned an error, incorporate the error message into the response and deny the object
-	// 	// creation.
-	// 	admissionReviewResponse.Response.Allowed = false
-	// 	admissionReviewResponse.Response.Result = &metav1.Status{
-	// 		Message: err.Error(),
-	// 	}
-	// } else {
-	// 	// Otherwise, encode the patch operations to JSON and return a positive response.
-	// 	patchBytes, err := json.Marshal(patchOps)
-	// 	if err != nil {
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		return nil, fmt.Errorf("could not marshal JSON patch: %v", err)
-	// 	}
-	// 	admissionReviewResponse.Response.Allowed = true
-	// 	admissionReviewResponse.Response.Patch = patchBytes
-	// }
-
-	// // Return the AdmissionReview with a response as JSON.
-	return nil, nil
+	bytes, err := json.Marshal(pod)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode the mutated Pod object: %w", err)
+	}
+	patch, err := jsonpatch.CreatePatch(req.Object.Raw, bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute the JSON patch: %w", err)
+	}
+	resp.Patch, err = json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode the JSON patch: %w", err)
+	}
+	return resp, nil
 }
 
+// shouldMutate returns whether the provided Pod should be mutated.
 func shouldMutate(pod corev1.Pod) bool {
 	for k, _ := range pod.ObjectMeta.Labels {
 		if strings.HasPrefix(k, "serving.knative.dev/") {
@@ -180,67 +195,3 @@ func shouldMutate(pod corev1.Pod) bool {
 	}
 	return false
 }
-
-// generateCertificate generates a self-signed certificate for the provided hosts and returns
-// the PEM encoded certificate and private key.
-//func generateCertificate(hosts []string) (string, string, error) {
-//	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-//	if err != nil {
-//		return "", "", fmt.Errorf("failed to generate private key: %w", err)
-//	}
-//
-//	notBefore := time.Now().Add(-5 * time.Minute)
-//	notAfter := notBefore.Add(2 * time.Hour)
-//
-//	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-//	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-//	if err != nil {
-//		return "", "", fmt.Errorf("failed to generate serial number: %w", err)
-//	}
-//
-//	template := x509.Certificate{
-//		SerialNumber: serialNumber,
-//		Subject: pkix.Name{
-//			Organization: []string{"Knative Serving"},
-//		},
-//		NotBefore: notBefore,
-//		NotAfter:  notAfter,
-//
-//		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-//		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-//		BasicConstraintsValid: true,
-//	}
-//
-//	for _, h := range hosts {
-//		if ip := net.ParseIP(h); ip != nil {
-//			template.IPAddresses = append(template.IPAddresses, ip)
-//		} else {
-//			template.DNSNames = append(template.DNSNames, h)
-//		}
-//	}
-//
-//	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
-//	if err != nil {
-//		return "", "", fmt.Errorf("failed to create the certificate: %w", err)
-//	}
-//
-//	certFile, err := ioutil.TempFile("", "cert-*")
-//	if err != nil {
-//		return "", "", fmt.Errorf("failed to create temporary file for the certificate: %v", err)
-//	}
-//	defer certFile.Close()
-//	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-//		return "", "", fmt.Errorf("failed to encode the certificate: %w", err)
-//	}
-//
-//	keyFile, err := ioutil.TempFile("", "key-*")
-//	if err != nil {
-//		return "", "", fmt.Errorf("failed to create temporary file for the private key: %v", err)
-//	}
-//	defer keyFile.Close()
-//	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}); err != nil {
-//		return "", "", fmt.Errorf("failed to encode the private key: %w", err)
-//	}
-//
-//	return certFile.Name(), keyFile.Name(), nil
-//}
