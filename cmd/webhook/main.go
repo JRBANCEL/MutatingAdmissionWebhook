@@ -49,9 +49,9 @@ func main() {
 		TLSConfig:&tls.Config{
 			GetCertificate: func(info *tls.ClientHelloInfo) (certificate *tls.Certificate, e error) {
 				klog.Info("GetCertificate")
-				secret, err := client.CoreV1().Secrets("node-ip-webhook").Get("node-ip-webhook-certs", metav1.GetOptions{})
+				secret, err := client.CoreV1().Secrets("node-ip-webhook").Get("webhook-cert", metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("Failed to get Secret %s/%s : %v", "node-ip-webhook", "node-ip-webhook-certs", err)
+					log.Fatalf("Failed to get Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
 				}
 
 				// TODO: validate Secret entries
@@ -59,7 +59,7 @@ func main() {
 
 				cert, err := tls.X509KeyPair(secret.Data["cert.pem"], secret.Data["key.pem"])
 				if err != nil {
-					log.Fatalf("Failed to parse Secret %s/%s : %v", "node-ip-webhook", "node-ip-webhook-certs", err)
+					log.Fatalf("Failed to parse Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
 				}
 				return &cert, nil
 			},
