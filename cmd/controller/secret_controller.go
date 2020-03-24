@@ -34,27 +34,28 @@ type SecretController struct {
 	secretsLister corelisters.SecretLister
 	secretsSynced cache.InformerSynced
 
-	workqueue workqueue.RateLimitingInterface
+	workQueue workqueue.RateLimitingInterface
 }
 
-// NewController returns a new sample controller
+// NewController returns a new SecretController.
 func NewController(
-	kubeclientset kubernetes.Interface,
+	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
 	secretNamespace string,
 	secretName string) *SecretController {
 	controller := &SecretController{
-		kubeClient:      kubeclientset,
+		kubeClient:      kubeClient,
 		secretNamespace: secretNamespace,
 		secretName:      secretName,
 		secretsLister:   secretInformer.Lister(),
 		secretsSynced:   secretInformer.Informer().HasSynced,
-		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "SecretController"),
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "SecretController"),
 	}
 
 	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.handleObject,
 		UpdateFunc: func(old, new interface{}) {
+			// Even if old and new are the same objects, expiration needs to be handled.
 			controller.handleObject(new)
 		},
 		DeleteFunc: controller.handleObject,
@@ -65,11 +66,11 @@ func NewController(
 
 // Run will set up the event handlers for types we are interested in, as well
 // as syncing informer caches and starting workers. It will block until stopCh
-// is closed, at which point it will shutdown the workqueue and wait for
+// is closed, at which point it will shutdown the workQueue and wait for
 // workers to finish processing their current work items.
 func (c *SecretController) Run(stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
-	defer c.workqueue.ShutDown()
+	defer c.workQueue.ShutDown()
 
 	// Start the informer factories to begin populating the informer caches
 	klog.Infof("Starting the Secret controller for '%s/%s'", c.secretNamespace, c.secretName)
@@ -83,7 +84,7 @@ func (c *SecretController) Run(stopCh <-chan struct{}) error {
 	go wait.Until(c.runWorker, time.Second, stopCh)
 
 	// Trigger a reconciliation to create the Secret if it doesn't exist
-	c.workqueue.Add(struct {}{})
+	c.workQueue.Add(struct {}{})
 
 	klog.Info("Successfully started!")
 	<-stopCh
@@ -92,16 +93,16 @@ func (c *SecretController) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
-// runWorker processes the workqueue.
+// runWorker processes the workQueue.
 func (c *SecretController) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
-// processNextWorkItem will read a single work item off the workqueue and
+// processNextWorkItem will read a single work item off the workQueue and
 // attempt to process it, by calling reconcileSecret.
 func (c *SecretController) processNextWorkItem() bool {
-	obj, shutdown := c.workqueue.Get()
+	obj, shutdown := c.workQueue.Get()
 
 	if shutdown {
 		return false
@@ -109,14 +110,14 @@ func (c *SecretController) processNextWorkItem() bool {
 
 	func() {
 		// Done() must always be called
-		defer c.workqueue.Done(obj)
+		defer c.workQueue.Done(obj)
 		if err := c.reconcileSecret(); err != nil {
 			// Requeue for retry
-			c.workqueue.AddRateLimited(struct {}{})
+			c.workQueue.AddRateLimited(struct {}{})
 			klog.Errorf("Failed to reconcile '%s/%s': %v", c.secretNamespace, c.secretName, err)
 		}
 		// Remove from the queue
-		c.workqueue.Forget(obj)
+		c.workQueue.Forget(obj)
 		klog.Infof("Successfully reconciled '%s/%s'", c.secretNamespace, c.secretName)
 	}()
 
@@ -131,7 +132,7 @@ func (c *SecretController) handleObject(obj interface{}) {
 		// Ignore everything except the Secret
 		if object.GetNamespace() == c.secretNamespace &&
 				object.GetName() == c.secretName {
-			c.workqueue.Add(struct{}{})
+			c.workQueue.Add(struct{}{})
 		}
 	} else {
 		klog.Infof("Ignoring: %s/%s", object.GetNamespace(), object.GetName())
