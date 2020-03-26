@@ -1,24 +1,24 @@
-apiVersion: admissionregistration.k8s.io/v1beta1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: node-ip-webhook
-webhooks:
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
-    service:
-      namespace: node-ip-webhook
-      name: webhook
-      path: "/mutate"
-  failurePolicy: Fail
-  name: node.ip.webhook
-  namespaceSelector:
-    matchExpressions:
-    - key: node-ip-webhook
-      operator: NotIn
-      values: ["disabled"]
-  rules:
-  - operations: [ "CREATE" ]
-    apiGroups: [""]
-    apiVersions: ["v1"]
-    resources: ["pods"]
+# apiVersion: admissionregistration.k8s.io/v1beta1
+# kind: MutatingWebhookConfiguration
+# metadata:
+#   name: node-ip-webhook
+# webhooks:
+# - admissionReviewVersions:
+#   - v1beta1
+#   clientConfig:
+#     service:
+#       namespace: node-ip-webhook
+#       name: webhook
+#       path: "/mutate"
+#   failurePolicy: Fail
+#   name: node.ip.webhook
+#   namespaceSelector:
+#     matchExpressions:
+#     - key: node-ip-webhook
+#       operator: NotIn
+#       values: ["disabled"]
+#   rules:
+#   - operations: [ "CREATE" ]
+#     apiGroups: [""]
+#     apiVersions: ["v1"]
+#     resources: ["pods"]

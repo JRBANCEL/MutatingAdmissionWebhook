@@ -32,20 +32,37 @@ func main() {
 
 	// Create an informer factory scoped to secretNamespace
 	// because it is the only namespace accessible by the service account.
-	informerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
+	secretInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
 		client,
 		1 * time.Hour,
 		kubeinformers.WithNamespace(secretNamespace))
 
-	controller := NewController(
+	secretController := NewController(
 		client,
-		informerFactory.Core().V1().Secrets(),
+		secretInformerFactory.Core().V1().Secrets(),
 		secretNamespace,
 		secretName)
 
-	informerFactory.Start(stopCh)
+	webhookInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
+		client,
+		1 * time.Hour,
+		kubeinformers.WithNamespace(secretNamespace))
+	webhookController := NewWebhookController(
+		client,
+		secretInformerFactory.Core().V1().Secrets(),
+		secretNamespace,
+		secretName,
+		webhookInformerFactory.Admissionregistration().V1().MutatingWebhookConfigurations(),
+		"node-ip-webhook")
 
-	if err = controller.Run(stopCh); err != nil {
+	secretInformerFactory.Start(stopCh)
+	webhookInformerFactory.Start(stopCh)
+
+	// TODO: clean this up
+	go func() {
+		webhookController.Run(stopCh)
+	}()
+	if err = secretController.Run(stopCh); err != nil {
 		klog.Fatalf("Error running the controller: %s", err.Error())
 	}
 }

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -20,6 +20,10 @@ import (
 	"k8s.io/klog"
 )
 
+var (
+	webhookURL = "https://webhook.node-ip-webhook:10250/mutate"
+)
+
 // WebhookController is the controller in charge of watching the TLS certificate stored in the Secret
 // secretNamespace/secretName and deriving the Webhook webhookNamespace/webhookName from it.
 type WebhookController struct {
@@ -27,7 +31,7 @@ type WebhookController struct {
 
 	secretNamespace string
 	secretName      string
-	webhookName      string
+	webhookName     string
 
 	secretsLister corelisters.SecretLister
 	secretsSynced cache.InformerSynced
@@ -47,15 +51,15 @@ func NewWebhookController(
 	webhookInformer admissioninformers.MutatingWebhookConfigurationInformer,
 	webhookName string) *WebhookController {
 	controller := &WebhookController{
-		kubeClient:       kubeClient,
-		secretNamespace:  secretNamespace,
-		secretName:       secretName,
-		secretsLister:    secretInformer.Lister(),
-		secretsSynced:    secretInformer.Informer().HasSynced,
-		webhookName:      webhookName,
-		webhooksLister:   webhookInformer.Lister(),
-		webhooksSynced:   webhookInformer.Informer().HasSynced,
-		workQueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "WebhookController"),
+		kubeClient:      kubeClient,
+		secretNamespace: secretNamespace,
+		secretName:      secretName,
+		secretsLister:   secretInformer.Lister(),
+		secretsSynced:   secretInformer.Informer().HasSynced,
+		webhookName:     webhookName,
+		webhooksLister:  webhookInformer.Lister(),
+		webhooksSynced:  webhookInformer.Informer().HasSynced,
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "WebhookController"),
 	}
 
 	secretInformer.Informer().AddEventHandler(createSecretEventHandler(controller))
@@ -76,10 +80,10 @@ func createSecretEventHandler(c *WebhookController) cache.ResourceEventHandler {
 	}
 	return &cache.ResourceEventHandlerFuncs{
 		// If the Secret is added, the Webhook must be updated.
-		AddFunc:    handleObject,
+		AddFunc: handleObject,
 		// If the Secret is updated, the Webhook must be updated.
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newSecret:= newObj.(*corev1.Secret)
+			newSecret := newObj.(*corev1.Secret)
 			oldSecret := oldObj.(*corev1.Secret)
 			if newSecret.ResourceVersion == oldSecret.ResourceVersion {
 				return
@@ -104,7 +108,7 @@ func createWebhookEventHandler(c *WebhookController) cache.ResourceEventHandler 
 	return &cache.ResourceEventHandlerFuncs{
 		// If the Webhook is created or updated, we must make sure that its definition
 		// matches our expectation.
-		AddFunc:    handleObject,
+		AddFunc: handleObject,
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newWebhook := newObj.(*admissionv1.MutatingWebhookConfiguration)
 			oldWebhook := oldObj.(*admissionv1.MutatingWebhookConfiguration)
@@ -195,39 +199,67 @@ func (c *WebhookController) reconcileWebhook() error {
 	if err != nil {
 		if errors.IsNotFound(err) {
 			klog.Infof("The Webhook %q was not found, creating it.", c.webhookName)
-			return c.createWebhook()
+			return c.createWebhook(secret)
 		}
 		return err
 	}
 	klog.Infof("The Webhook %q was found, updating it.", c.webhookName)
-	return nil
+	return c.updateWebhook(secret, webhook)
 }
 
-func (c *WebhookController) createWebhook() error {
-	data, err := generateSecretData()
-	if err != nil {
-		return fmt.Errorf("failed to generate the Secret data: %w", err)
-	}
-
-	secret := &corev1.Secret{
+func (c *WebhookController) createWebhook(secret *corev1.Secret) error {
+	webhook := &admissionv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: c.secretNamespace,
-			Name:      c.secretName,
+			Name: c.webhookName,
 		},
-		Data: data,
+		Webhooks: c.newWebhooks(secret),
 	}
-	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Create(secret)
+	_, err := c.kubeClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Create(webhook)
 	return err
 }
 
-func (c *WebhookController) updateWebhook(secret *corev1.Secret) error {
-	data, err := generateSecretData()
-	if err != nil {
-		return fmt.Errorf("failed to generate the Secret data: %w", err)
-	}
-
-	secret = secret.DeepCopy()
-	secret.Data = data
-	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Update(secret)
+func (c *WebhookController) updateWebhook(secret *corev1.Secret, webhook *admissionv1.MutatingWebhookConfiguration) error {
+	webhook = webhook.DeepCopy()
+	webhook.Webhooks = c.newWebhooks(secret)
+	_, err := c.kubeClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Update(webhook)
 	return err
+}
+
+func (c *WebhookController) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
+	return []admissionv1.MutatingWebhook{
+		{
+			Name: "node-ip.webhook",
+			ClientConfig: admissionv1.WebhookClientConfig{
+				URL:      &webhookURL,
+				CABundle: secret.Data["cert.pem"],
+			},
+			Rules: []admissionv1.RuleWithOperations{
+				{
+					Operations: []admissionv1.OperationType{
+						admissionv1.Create,
+					},
+					Rule: admissionv1.Rule{
+						APIGroups:   []string{""},
+						APIVersions: []string{"v1"},
+						Resources:   []string{"pods"},
+					},
+				},
+			},
+			//FailurePolicy: ,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "inject-node-ip",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"false"},
+					},
+				},
+			},
+			//ObjectSelector:          nil,
+			//SideEffects:             admissionregistration.SideEffectClassSome, // TODO: handle DryRun
+			//TimeoutSeconds:          nil,
+			//AdmissionReviewVersions: nil,
+			//ReinvocationPolicy:      nil,
+		},
+	}
 }

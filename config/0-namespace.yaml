@@ -5,4 +5,4 @@ metadata:
   labels:
     # This namespace must be excluded from the Webhook since it contains the
     # Pods implementing the Webhook itself to prevent a catch-22.
-    node-ip-webhook: "disabled"
+    inject-node-ip: "false"

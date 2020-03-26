@@ -15,7 +15,7 @@ spec:
       labels:
         app: controller
     spec:
-      serviceAccountName: node-ip-webhook-controller
+      serviceAccountName: controller
       containers:
         - name: controller
           image: github.com/JRBANCEL/MutatingAdmissionWebhook/cmd/controller
