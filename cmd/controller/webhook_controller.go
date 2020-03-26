@@ -189,9 +189,9 @@ func (c *WebhookController) processNextWorkItem() bool {
 func (c *WebhookController) reconcileWebhook() error {
 	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
-		//if errors.IsNotFound(err) {
-		//	return fmt.Errorf("the Secret %s/%s was not found, aborting the reconciliation", c.secretNamespace, c.secretName)
-		//}
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("the Secret %s/%s was not found, aborting the reconciliation.", c.secretNamespace, c.secretName)
+		}
 		return err
 	}
 
@@ -226,9 +226,10 @@ func (c *WebhookController) updateWebhook(secret *corev1.Secret, webhook *admiss
 }
 
 func (c *WebhookController) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
+	failurePolicy := admissionv1.Fail
 	return []admissionv1.MutatingWebhook{
 		{
-			Name: "node-ip.webhook",
+			Name: "node.ip.webhook",
 			ClientConfig: admissionv1.WebhookClientConfig{
 				URL:      &webhookURL,
 				CABundle: secret.Data["cert.pem"],
@@ -245,7 +246,7 @@ func (c *WebhookController) newWebhooks(secret *corev1.Secret) []admissionv1.Mut
 					},
 				},
 			},
-			//FailurePolicy: ,
+			FailurePolicy: &failurePolicy,
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
