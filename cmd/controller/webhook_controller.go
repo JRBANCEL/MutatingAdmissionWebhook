@@ -20,10 +20,6 @@ import (
 	"k8s.io/klog"
 )
 
-var (
-	webhookURL = "https://webhook.node-ip-webhook:10250/mutate"
-)
-
 // WebhookController is the controller in charge of watching the TLS certificate stored in the Secret
 // secretNamespace/secretName and deriving the Webhook webhookNamespace/webhookName from it.
 type WebhookController struct {
@@ -227,11 +223,18 @@ func (c *WebhookController) updateWebhook(secret *corev1.Secret, webhook *admiss
 
 func (c *WebhookController) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
 	failurePolicy := admissionv1.Fail
+	servicePath := "/mutate"
+	servicePort := int32(10250)
 	return []admissionv1.MutatingWebhook{
 		{
 			Name: "node.ip.webhook",
 			ClientConfig: admissionv1.WebhookClientConfig{
-				URL:      &webhookURL,
+				Service:&admissionv1.ServiceReference{
+					Namespace: "node-ip-webhook",
+					Name:      "webhook",
+					Path:      &servicePath,
+					Port:      &servicePort,
+				},
 				CABundle: secret.Data["cert.pem"],
 			},
 			Rules: []admissionv1.RuleWithOperations{
