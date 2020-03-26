@@ -1,3 +1,5 @@
+# The controllers must be running under a Service Account
+# that has admin access to the Secret and the Webhook objects.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -31,6 +33,30 @@ roleRef:
   name: secret-admin
   apiGroup: rbac.authorization.k8s.io
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: webhook-admin
+rules:
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingwebhookconfigurations"]
+  #resourceNames: ["node-ip-webhook"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-ip-controller-webhook-admin
+subjects:
+- kind: ServiceAccount
+  name: controller
+  namespace: node-ip-webhook
+roleRef:
+  kind: ClusterRole
+  name: webhook-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+# The Webhook must be running under a Service Account that can read the Secret.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -62,29 +88,4 @@ subjects:
 roleRef:
   kind: Role
   name: secret-read
-  apiGroup: rbac.authorization.k8s.io
----
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: webhook-admin
-  labels:
-  #rbac.authorization.k8s.io/aggregate-to-admin: "true"
-rules:
-- apiGroups: [""]
-  resources: ["mutatingwebhookconfigurations"]
-  #resourceNames: ["node-ip-webhook"]
-  verbs: ["*"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: node-ip-webhook-admin
-subjects:
-- kind: ServiceAccount
-  name: webhook
-  namespace: node-ip-webhook
-roleRef:
-  kind: ClusterRole
-  name: webhook-admin
   apiGroup: rbac.authorization.k8s.io
