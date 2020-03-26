@@ -52,7 +52,7 @@ func main() {
 		secretInformerFactory.Core().V1().Secrets(),
 		secretNamespace,
 		secretName,
-		webhookInformerFactory.Admissionregistration().V1().MutatingWebhookConfigurations(),
+		webhookInformerFactory.Admissionregistration().V1beta1().MutatingWebhookConfigurations(),
 		"node-ip-webhook")
 
 	secretInformerFactory.Start(stopCh)

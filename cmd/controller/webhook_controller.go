@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"time"
 
-	admissionv1 "k8s.io/api/admissionregistration/v1"
+	admissionv1 "k8s.io/api/admissionregistration/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	admissioninformers "k8s.io/client-go/informers/admissionregistration/v1"
+	admissioninformers "k8s.io/client-go/informers/admissionregistration/v1beta1"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
-	admissionlisters "k8s.io/client-go/listers/admissionregistration/v1"
+	admissionlisters "k8s.io/client-go/listers/admissionregistration/v1beta1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -214,14 +214,14 @@ func (c *WebhookController) createWebhook(secret *corev1.Secret) error {
 		},
 		Webhooks: c.newWebhooks(secret),
 	}
-	_, err := c.kubeClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Create(webhook)
+	_, err := c.kubeClient.AdmissionregistrationV1beta1().MutatingWebhookConfigurations().Create(webhook)
 	return err
 }
 
 func (c *WebhookController) updateWebhook(secret *corev1.Secret, webhook *admissionv1.MutatingWebhookConfiguration) error {
 	webhook = webhook.DeepCopy()
 	webhook.Webhooks = c.newWebhooks(secret)
-	_, err := c.kubeClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Update(webhook)
+	_, err := c.kubeClient.AdmissionregistrationV1beta1().MutatingWebhookConfigurations().Update(webhook)
 	return err
 }
 
