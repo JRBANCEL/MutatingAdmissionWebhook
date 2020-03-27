@@ -140,7 +140,7 @@ func (c *WebhookController) Run(stopCh <-chan struct{}) error {
 
 	go wait.Until(c.runWorker, time.Second, stopCh)
 
-	// Trigger a reconciliation to create the Secret if it doesn't exist
+	// Trigger a reconciliation to create the Webhook if it doesn't exist
 	c.workQueue.Add(struct{}{})
 
 	klog.Info("Successfully started!")
@@ -186,7 +186,7 @@ func (c *WebhookController) reconcileWebhook() error {
 	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return fmt.Errorf("the Secret %s/%s was not found, aborting the reconciliation.", c.secretNamespace, c.secretName)
+			return fmt.Errorf("the Secret '%s/%s' was not found, aborting the reconciliation: %v", c.secretNamespace, c.secretName, err)
 		}
 		return err
 	}
