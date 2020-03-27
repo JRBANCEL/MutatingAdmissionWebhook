@@ -48,51 +48,46 @@ func (f *fixture) newController() (*SecretController, kubeinformers.SharedInform
 	c.secretsSynced = alwaysReady
 	//c.recorder = &record.FakeRecorder{}
 
-
-	//for _, d := range f.deploymentLister {
-	//	k8sI.Apps().V1().Deployments().Informer().GetIndexer().Add(d)
-	//}
+	for _, s := range f.secretsLister {
+		k8sI.Core().V1().Secrets().Informer().GetIndexer().Add(s)
+	}
 
 	return c, k8sI
 }
 
-func (f *fixture) run() {
-	f.runController(true, false)
-}
+//func (f *fixture) run() {
+//	f.runController(true, false)
+//}
+//
+//func (f *fixture) runExpectError(fooName string) {
+//	f.runController(true, true)
+//}
 
-func (f *fixture) runExpectError(fooName string) {
-	f.runController(true, true)
-}
-
-func (f *fixture) runController(startInformers bool, expectError bool) {
+func (f *fixture) run(t *testing.T, stopCh <-chan struct{}) *SecretController {
 	c, k8sI := f.newController()
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-	if startInformers {
-		k8sI.Start(stopCh)
-	}
+	k8sI.Start(stopCh)
 
-	err := c.Run(stopCh)
-	if !expectError && err != nil {
-		f.t.Errorf("error syncing foo: %v", err)
-	} else if expectError && err == nil {
-		f.t.Error("expected error syncing foo, got nil")
-	}
-
-	k8sActions := filterInformerActions(f.kubeClient.Actions())
-	for i, action := range k8sActions {
-		if len(f.kubeActions) < i+1 {
-			f.t.Errorf("%d unexpected actions: %+v", len(k8sActions)-len(f.kubeActions), k8sActions[i:])
-			break
+	go func() {
+		err := c.Run(stopCh)
+		if err != nil {
+			t.Fatalf("Failed to run controller: %v", err)
 		}
+	}()
+	return c
+	//k8sActions := filterInformerActions(f.kubeClient.Actions())
+	//for i, action := range k8sActions {
+	//	if len(f.kubeActions) < i+1 {
+	//		f.t.Errorf("%d unexpected actions: %+v", len(k8sActions)-len(f.kubeActions), k8sActions[i:])
+	//		break
+	//	}
 
-		expectedAction := f.kubeActions[i]
-		checkAction(expectedAction, action, f.t)
-	}
+	//	expectedAction := f.kubeActions[i]
+	//	checkAction(expectedAction, action, f.t)
+	//}
 
-	if len(f.kubeActions) > len(k8sActions) {
-		f.t.Errorf("%d additional expected actions:%+v", len(f.kubeActions)-len(k8sActions), f.kubeActions[len(k8sActions):])
-	}
+	//if len(f.kubeActions) > len(k8sActions) {
+	//	f.t.Errorf("%d additional expected actions:%+v", len(f.kubeActions)-len(k8sActions), f.kubeActions[len(k8sActions):])
+	//}
 }
 
 // checkAction verifies that expected and actual actions are equal and both have
@@ -162,8 +157,25 @@ func filterInformerActions(actions []core.Action) []core.Action {
 }
 
 func TestCreateSecretIfItDoesntExist(t *testing.T) {
+	stopCh := make(<-chan struct{})
 	f := newFixture(t)
-	f.run()
+	c := f.run(t, stopCh)
+
+	// TODO: hide in f.run
+	time.Sleep(5 * time.Second)
+
+	secret, err := c.secretsLister.Secrets("node-ip-webhook").Get("webhook-cert")
+	if err != nil {
+		t.Fatalf("Failed to get the Secret: %v", err)
+	}
+	expiration, err := getDurationBeforeExpiration(secret)
+	if err != nil {
+		t.Fatalf("Failed to parse the Secret: %v", err)
+	}
+	if expiration < 364 * 24 * time.Hour {
+		t.Fatalf("The Secret expires too soon: %v", expiration)
+	}
+
 	//f.fooLister = append(f.fooLister, foo)
 	//f.objects = append(f.objects, foo)
 
@@ -174,9 +186,9 @@ func TestCreateSecretIfItDoesntExist(t *testing.T) {
 	//f.run(getKey(foo, t))
 }
 
-// func (f *fixture) expectCreateDeploymentAction(d *apps.Deployment) {
-// 	f.kubeactions = append(f.kubeactions, core.NewCreateAction(schema.GroupVersionResource{Resource: "deployments"}, d.Namespace, d))
-// }
+//func (f *fixture) expectCreateDeploymentAction(d *apps.Deployment) {
+//	f.kubeactions = append(f.kubeactions, core.NewCreateAction(schema.GroupVersionResource{Resource: "deployments"}, d.Namespace, d))
+//}
 //
 // func (f *fixture) expectUpdateDeploymentAction(d *apps.Deployment) {
 // 	f.kubeactions = append(f.kubeactions, core.NewUpdateAction(schema.GroupVersionResource{Resource: "deployments"}, d.Namespace, d))
