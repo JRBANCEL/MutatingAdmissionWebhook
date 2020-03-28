@@ -1,13 +1,13 @@
-package secret
+package webhook
 
 import (
 	"reflect"
 	"testing"
 	"time"
 
+	admiv1beta1 "k8s.io/api/admissionregistration/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/diff"
 	kubeinformers "k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 
@@ -17,6 +17,7 @@ import (
 const (
 	secretNamespace = "foo"
 	secretName = "bar"
+	webhookName = "whatever"
 )
 
 var (
@@ -24,87 +25,75 @@ var (
 	noResyncPeriodFunc = func() time.Duration { return 0 }
 )
 
-func TestCreateSecretIfItDoesntExist(t *testing.T) {
+func TestCreateWebhookIfItDoesntExist(t *testing.T) {
 	f := newFixture(t)
 
-	c := f.run(t)
-
-	// Validate that a fresh Secret has been created
-	secret, err := c.secretsLister.Secrets(secretNamespace).Get(secretName)
-	if err != nil {
-		t.Fatalf("Failed to get the Secret: %v", err)
-	}
-	expiration, err := certificate.GetDurationBeforeExpiration(secret.Data)
-	if err != nil {
-		t.Fatalf("Failed to parse the Secret: %v", err)
-	}
-	if expiration < 364*24*time.Hour {
-		t.Fatalf("The Secret expires too soon: %v", expiration)
-	}
-}
-
-func TestDoNothingIfSecretExistsAndIsNotExpiringSoon(t *testing.T) {
-	f := newFixture(t)
-
-	// Create a Secret not expiring soon (as defined by the expiration threshold)
 	data, err := certificate.GenerateSecretData(time.Now(), time.Now().Add(365*24*time.Hour))
 	if err != nil {
 		t.Fatalf("Failed to create the Secret: %v", err)
 	}
-	oldSecret := &corev1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: secretNamespace,
 			Name:      secretName,
 		},
 		Data: data,
 	}
-	f.secrets = append(f.secrets, oldSecret)
+	f.secrets = append(f.secrets, secret)
 
 	c := f.run(t)
 
-	// Validate that the Secret hasn't changed
-	newSecret, err := c.secretsLister.Secrets(secretNamespace).Get(secretName)
+	// Validate that the Webhook was created
+	webhook, err := c.webhooksLister.Get(webhookName)
 	if err != nil {
-		t.Fatalf("Failed to get the Secret: %v", err)
+		t.Fatalf("Failed to get the Webhook: %v", err)
 	}
-	if !reflect.DeepEqual(oldSecret, newSecret) {
-		t.Fatalf("The Secret has been modified, diff:\n %s", diff.ObjectGoPrintSideBySide(oldSecret, newSecret))
+	if len(webhook.Webhooks) != 1 {
+		t.Fatalf("Webhook.Webhooks should contain a single entry: %v", webhook)
+	}
+	if !reflect.DeepEqual(webhook.Webhooks[0].ClientConfig.CABundle, certificate.GetCABundle(secret.Data)) {
+		t.Fatalf("The Webhook CABundle doesn't match the Secret: CABundle: %v, Secret: %v", webhook.Webhooks[0].ClientConfig.CABundle, secret)
 	}
 }
 
-func TestRefreshSecretIfExistsAndIsExpiringSoon(t *testing.T) {
+func TestUpdateWebhookIfItExistsButDoesntMatchTheSecret(t *testing.T) {
 	f := newFixture(t)
 
-	// Create a Secret expiring soon (as defined by the expiration threshold)
-	data, err := certificate.GenerateSecretData(time.Now(), time.Now().Add(5*time.Minute))
+	data, err := certificate.GenerateSecretData(time.Now(), time.Now().Add(365*24*time.Hour))
 	if err != nil {
 		t.Fatalf("Failed to create the Secret: %v", err)
 	}
-	oldSecret := &corev1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: secretNamespace,
 			Name:      secretName,
 		},
 		Data: data,
 	}
-	f.secrets = append(f.secrets, oldSecret)
+	f.secrets = append(f.secrets, secret)
+	oldWebhook := &admiv1beta1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: webhookName,
+		},
+	}
+	f.webhooks = append(f.webhooks, oldWebhook)
 
 	c := f.run(t)
 
-	// Validate that the Secret has been refreshed
-	newSecret, err := c.kubeClient.CoreV1().Secrets(secretNamespace).Get(secretName, metav1.GetOptions{})
+	// Validate that the Webhook was updated
+	newWebhook, err := c.webhooksLister.Get(webhookName)
 	if err != nil {
-		t.Fatalf("Failed to get the Secret: %v", err)
+		t.Fatalf("Failed to get the Webhook: %v", err)
 	}
-	if reflect.DeepEqual(oldSecret, newSecret) {
-		t.Fatalf("The Secret hasn't been modified")
+	if reflect.DeepEqual(oldWebhook, newWebhook) {
+		t.Fatalf("The Webhook hasn't been modified")
 	}
-	expiration, err := certificate.GetDurationBeforeExpiration(newSecret.Data)
-	if err != nil {
-		t.Fatalf("Failed to parse the Secret: %v", err)
+	// TODO: abstract to validation method
+	if len(newWebhook.Webhooks) != 1 {
+		t.Fatalf("Webhook.Webhooks should contain a single entry: %v", newWebhook)
 	}
-	if expiration < 364*24*time.Hour {
-		t.Fatalf("The Secret expires too soon: %v", expiration)
+	if !reflect.DeepEqual(newWebhook.Webhooks[0].ClientConfig.CABundle, certificate.GetCABundle(secret.Data)) {
+		t.Fatalf("The Webhook CABundle doesn't match the Secret: CABundle: %v, Secret: %v", newWebhook.Webhooks[0].ClientConfig.CABundle, secret)
 	}
 }
 
@@ -113,6 +102,7 @@ type fixture struct {
 
 	kubeClient    *k8sfake.Clientset
 	secrets []*corev1.Secret
+	webhooks []*admiv1beta1.MutatingWebhookConfiguration
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -126,11 +116,14 @@ func (f *fixture) newController() (*Controller, kubeinformers.SharedInformerFact
 
 	k8sI := kubeinformers.NewSharedInformerFactory(f.kubeClient, noResyncPeriodFunc())
 
-	c := NewController(f.kubeClient, k8sI.Core().V1().Secrets(), secretNamespace, secretName)
+	c := NewController(f.kubeClient, k8sI.Core().V1().Secrets(), secretNamespace, secretName, k8sI.Admissionregistration().V1beta1().MutatingWebhookConfigurations(), webhookName)
 	c.secretsSynced = alwaysReady
 
 	for _, s := range f.secrets {
 		_, _ = f.kubeClient.CoreV1().Secrets(s.Namespace).Create(s)
+	}
+	for _, w := range f.webhooks {
+		_, _ = f.kubeClient.AdmissionregistrationV1beta1().MutatingWebhookConfigurations().Create(w)
 	}
 
 	return c, k8sI

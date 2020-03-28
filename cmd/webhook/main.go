@@ -18,7 +18,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 
-	"gomodules.xyz/jsonpatch/v2"
+	"gomodules.xyz/jsonpatch/v3"
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/certificate"
 )
 
 const (
@@ -47,17 +48,14 @@ func main() {
 		Addr:    ":10250",
 		Handler: mux,
 		TLSConfig:&tls.Config{
-			GetCertificate: func(info *tls.ClientHelloInfo) (certificate *tls.Certificate, e error) {
-				klog.Info("GetCertificate")
+			GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				// TODO: use constants
 				secret, err := client.CoreV1().Secrets("node-ip-webhook").Get("webhook-cert", metav1.GetOptions{})
 				if err != nil {
 					log.Fatalf("Failed to get Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
 				}
 
-				// TODO: validate Secret entries
-				//if ok := secret["cert.pem"]
-
-				cert, err := tls.X509KeyPair(secret.Data["cert.pem"], secret.Data["key.pem"])
+				cert, err := certificate.ParseSecretData(secret.Data)
 				if err != nil {
 					log.Fatalf("Failed to parse Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
 				}
@@ -120,7 +118,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 	admissionReviewResp.Response.UID = admissionReviewReq.Request.UID
 
 	encoder := json.NewEncoder(w)
-	encoder.Encode(&admissionReviewResp)
+	err = encoder.Encode(&admissionReviewResp)
 	if err != nil {
 		klog.Errorf("failed to encode the response: %v", err)
 		return

@@ -29,9 +29,9 @@ var (
 	expirationThreshold = 30 * 24 * time.Hour
 )
 
-// SecretController is the controller in charge of the creating and refreshing
+// Controller is the controller in charge of the creating and refreshing
 // the Webhook Secret.
-type SecretController struct {
+type Controller struct {
 	kubeClient kubernetes.Interface
 
 	secretNamespace string
@@ -43,19 +43,19 @@ type SecretController struct {
 	workQueue workqueue.RateLimitingInterface
 }
 
-// NewController returns a new SecretController.
+// NewController returns a new Controller.
 func NewController(
 	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
 	secretNamespace string,
-	secretName string) *SecretController {
-	controller := &SecretController{
+	secretName string) *Controller {
+	controller := &Controller{
 		kubeClient:      kubeClient,
 		secretNamespace: secretNamespace,
 		secretName:      secretName,
 		secretsLister:   secretInformer.Lister(),
 		secretsSynced:   secretInformer.Informer().HasSynced,
-		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "SecretController"),
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Controller"),
 	}
 
 	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -74,7 +74,7 @@ func NewController(
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workQueue and wait for
 // workers to finish processing their current work items.
-func (c *SecretController) Run(stopCh <-chan struct{}) error {
+func (c *Controller) Run(stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
 	defer c.workQueue.ShutDown()
 
@@ -100,14 +100,14 @@ func (c *SecretController) Run(stopCh <-chan struct{}) error {
 }
 
 // runWorker processes the workQueue.
-func (c *SecretController) runWorker() {
+func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workQueue and
 // attempt to process it, by calling reconcileSecret.
-func (c *SecretController) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem() bool {
 	obj, shutdown := c.workQueue.Get()
 
 	if shutdown {
@@ -133,7 +133,7 @@ func (c *SecretController) processNextWorkItem() bool {
 // handleObject decides what to do with the provided object.
 // If the object is the Secret this controller is in charge of then an item is
 // enqueued to trigger reconciliation; otherwise, nothing is done.
-func (c *SecretController) handleObject(obj interface{}) {
+func (c *Controller) handleObject(obj interface{}) {
 	if object, ok := obj.(metav1.Object); ok {
 		// Ignore everything except the Secret
 		if object.GetNamespace() == c.secretNamespace &&
@@ -146,7 +146,7 @@ func (c *SecretController) handleObject(obj interface{}) {
 }
 
 // reconcileSecret reconcile the current state of the Secret with its desired state.
-func (c *SecretController) reconcileSecret() error {
+func (c *Controller) reconcileSecret() error {
 	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -158,7 +158,7 @@ func (c *SecretController) reconcileSecret() error {
 	}
 
 	// If the Secret is close to expiration, it needs to be refreshed
-	durationBeforeExpiration, err := certificate.GetDurationBeforeExpiration(secret)
+	durationBeforeExpiration, err := certificate.GetDurationBeforeExpiration(secret.Data)
 	if err != nil || durationBeforeExpiration < expirationThreshold {
 		klog.Infof("The certificate is expiring soon (%v), refreshing it.", durationBeforeExpiration)
 		return c.updateSecret(secret)
@@ -168,7 +168,7 @@ func (c *SecretController) reconcileSecret() error {
 	return nil
 }
 
-func (c *SecretController) createSecret() error {
+func (c *Controller) createSecret() error {
 	data, err := certificate.GenerateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)
@@ -185,7 +185,7 @@ func (c *SecretController) createSecret() error {
 	return err
 }
 
-func (c *SecretController) updateSecret(secret *corev1.Secret) error {
+func (c *Controller) updateSecret(secret *corev1.Secret) error {
 	data, err := certificate.GenerateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)

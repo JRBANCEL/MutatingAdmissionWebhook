@@ -20,9 +20,9 @@ import (
 	"k8s.io/klog"
 )
 
-// WebhookController is the controller in charge of watching the TLS certificate stored in the Secret
+// Controller is the controller in charge of watching the TLS certificate stored in the Secret
 // secretNamespace/secretName and deriving the Webhook webhookNamespace/webhookName from it.
-type WebhookController struct {
+type Controller struct {
 	kubeClient kubernetes.Interface
 
 	secretNamespace string
@@ -38,15 +38,15 @@ type WebhookController struct {
 	workQueue workqueue.RateLimitingInterface
 }
 
-// NewWebhookController returns a new WebhookController.
+// NewWebhookController returns a new Controller.
 func NewController(
 	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
 	secretNamespace string,
 	secretName string,
 	webhookInformer admissioninformers.MutatingWebhookConfigurationInformer,
-	webhookName string) *WebhookController {
-	controller := &WebhookController{
+	webhookName string) *Controller {
+	controller := &Controller{
 		kubeClient:      kubeClient,
 		secretNamespace: secretNamespace,
 		secretName:      secretName,
@@ -55,7 +55,7 @@ func NewController(
 		webhookName:     webhookName,
 		webhooksLister:  webhookInformer.Lister(),
 		webhooksSynced:  webhookInformer.Informer().HasSynced,
-		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "WebhookController"),
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Controller"),
 	}
 
 	secretInformer.Informer().AddEventHandler(createSecretEventHandler(controller))
@@ -64,7 +64,7 @@ func NewController(
 	return controller
 }
 
-func createSecretEventHandler(c *WebhookController) cache.ResourceEventHandler {
+func createSecretEventHandler(c *Controller) cache.ResourceEventHandler {
 	handleObject := func(obj interface{}) {
 		if object, ok := obj.(metav1.Object); ok {
 			// Ignore everything except the Secret being watched
@@ -92,7 +92,7 @@ func createSecretEventHandler(c *WebhookController) cache.ResourceEventHandler {
 	}
 }
 
-func createWebhookEventHandler(c *WebhookController) cache.ResourceEventHandler {
+func createWebhookEventHandler(c *Controller) cache.ResourceEventHandler {
 	handleObject := func(obj interface{}) {
 		if object, ok := obj.(metav1.Object); ok {
 			// Ignore everything except the Webhook being watched
@@ -122,7 +122,7 @@ func createWebhookEventHandler(c *WebhookController) cache.ResourceEventHandler 
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workQueue and wait for
 // workers to finish processing their current work items.
-func (c *WebhookController) Run(stopCh <-chan struct{}) error {
+func (c *Controller) Run(stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
 	defer c.workQueue.ShutDown()
 
@@ -151,14 +151,14 @@ func (c *WebhookController) Run(stopCh <-chan struct{}) error {
 }
 
 // runWorker processes the workQueue.
-func (c *WebhookController) runWorker() {
+func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workQueue and
 // attempt to process it, by calling reconcileSecret.
-func (c *WebhookController) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem() bool {
 	obj, shutdown := c.workQueue.Get()
 
 	if shutdown {
@@ -182,7 +182,7 @@ func (c *WebhookController) processNextWorkItem() bool {
 }
 
 // reconcileSecret reconcile the current state of the Webhook with its desired state.
-func (c *WebhookController) reconcileWebhook() error {
+func (c *Controller) reconcileWebhook() error {
 	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -203,7 +203,7 @@ func (c *WebhookController) reconcileWebhook() error {
 	return c.updateWebhook(secret, webhook)
 }
 
-func (c *WebhookController) createWebhook(secret *corev1.Secret) error {
+func (c *Controller) createWebhook(secret *corev1.Secret) error {
 	webhook := &admissionv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: c.webhookName,
@@ -214,14 +214,14 @@ func (c *WebhookController) createWebhook(secret *corev1.Secret) error {
 	return err
 }
 
-func (c *WebhookController) updateWebhook(secret *corev1.Secret, webhook *admissionv1.MutatingWebhookConfiguration) error {
+func (c *Controller) updateWebhook(secret *corev1.Secret, webhook *admissionv1.MutatingWebhookConfiguration) error {
 	webhook = webhook.DeepCopy()
 	webhook.Webhooks = c.newWebhooks(secret)
 	_, err := c.kubeClient.AdmissionregistrationV1beta1().MutatingWebhookConfigurations().Update(webhook)
 	return err
 }
 
-func (c *WebhookController) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
+func (c *Controller) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
 	failurePolicy := admissionv1.Fail
 	servicePath := "/mutate"
 	servicePort := int32(443)

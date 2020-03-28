@@ -105,3 +105,7 @@ func GetDurationBeforeExpiration(data map[string][]byte) (time.Duration, error) 
 func ParseSecretData(data map[string][]byte) (tls.Certificate, error) {
 	return tls.X509KeyPair(data["cert.pem"], data["key.pem"])
 }
+
+func GetCABundle(data map[string][]byte) []byte {
+	return data[certKey]
+}
