@@ -1,4 +1,4 @@
-package main
+package secret
 
 import (
 	"fmt"
@@ -15,6 +15,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
+
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/certificate"
 )
 
 var (
@@ -156,7 +158,7 @@ func (c *SecretController) reconcileSecret() error {
 	}
 
 	// If the Secret is close to expiration, it needs to be refreshed
-	durationBeforeExpiration, err := getDurationBeforeExpiration(secret)
+	durationBeforeExpiration, err := certificate.GetDurationBeforeExpiration(secret)
 	if err != nil || durationBeforeExpiration < expirationThreshold {
 		klog.Infof("The certificate is expiring soon (%v), refreshing it.", durationBeforeExpiration)
 		return c.updateSecret(secret)
@@ -167,7 +169,7 @@ func (c *SecretController) reconcileSecret() error {
 }
 
 func (c *SecretController) createSecret() error {
-	data, err := generateSecretData(notBefore(), notAfter())
+	data, err := certificate.GenerateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)
 	}
@@ -184,7 +186,7 @@ func (c *SecretController) createSecret() error {
 }
 
 func (c *SecretController) updateSecret(secret *corev1.Secret) error {
-	data, err := generateSecretData(notBefore(), notAfter())
+	data, err := certificate.GenerateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)
 	}

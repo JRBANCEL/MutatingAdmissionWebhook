@@ -1,23 +1,22 @@
-package main
+package certificate
 
 import (
 	"bytes"
-	"fmt"
-	"net"
-
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	corev1 "k8s.io/api/core/v1"
+	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
 const (
 	certKey = "cert.pem"
-	keyKey = "key.pem"
+	keyKey  = "key.pem"
 )
 
 func generateCertificate(hosts []string, notBefore, notAfter time.Time) ([]byte, []byte, error) {
@@ -71,7 +70,7 @@ func generateCertificate(hosts []string, notBefore, notAfter time.Time) ([]byte,
 	return certBuf.Bytes(), keyBuf.Bytes(), nil
 }
 
-func generateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error) {
+func GenerateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error) {
 	certPEM, keyPEM, err := generateCertificate(
 		[]string{"webhook", "webhook.node-ip-webhook", "webhook.node-ip-webhook.svc", ".webhook.node-ip-webhook.svc.cluster.local"},
 		notBefore,
@@ -86,19 +85,23 @@ func generateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error
 	return data, nil
 }
 
-func getDurationBeforeExpiration(secret *corev1.Secret) (time.Duration, error) {
-	certPEM, ok := secret.Data[certKey]
-		if !ok {
-			return 0, fmt.Errorf("the Secret doesn't contain an entry for %q", certKey)
-		}
-		certAsn1, _ := pem.Decode(certPEM)
-		if certAsn1 == nil {
-			return 0, fmt.Errorf("failed to parse certificate PEM")
-		}
-		cert, err := x509.ParseCertificate(certAsn1.Bytes)
-		if err != nil {
-			return 0, fmt.Errorf("failed to parse the certificate ASN.1: %w", err)
-		}
+func GetDurationBeforeExpiration(data map[string][]byte) (time.Duration, error) {
+	certPEM, ok := data[certKey]
+	if !ok {
+		return 0, fmt.Errorf("the Secret doesn't contain an entry for %q", certKey)
+	}
+	certAsn1, _ := pem.Decode(certPEM)
+	if certAsn1 == nil {
+		return 0, fmt.Errorf("failed to parse certificate PEM")
+	}
+	cert, err := x509.ParseCertificate(certAsn1.Bytes)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse the certificate ASN.1: %w", err)
+	}
 
-		return -time.Since(cert.NotAfter), nil
+	return -time.Since(cert.NotAfter), nil
+}
+
+func ParseSecretData(data map[string][]byte) (tls.Certificate, error) {
+	return tls.X509KeyPair(data["cert.pem"], data["key.pem"])
 }

@@ -7,6 +7,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/controller/secret"
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/controller/webhook"
 )
 
 const (
@@ -37,26 +40,26 @@ func main() {
 		1 * time.Hour,
 		kubeinformers.WithNamespace(secretNamespace))
 
-	secretController := NewController(
+	secretController := secret.NewController(
 		client,
 		secretInformerFactory.Core().V1().Secrets(),
 		secretNamespace,
 		secretName)
 
-	webhookInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
-		client,
-		1 * time.Hour,
-		kubeinformers.WithNamespace(secretNamespace))
-	webhookController := NewWebhookController(
+	//webhookInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
+	//	client,
+	//	1 * time.Hour,
+	//	kubeinformers.WithNamespace(secretNamespace))
+	webhookController := webhook.NewController(
 		client,
 		secretInformerFactory.Core().V1().Secrets(),
 		secretNamespace,
 		secretName,
-		webhookInformerFactory.Admissionregistration().V1beta1().MutatingWebhookConfigurations(),
+		secretInformerFactory.Admissionregistration().V1beta1().MutatingWebhookConfigurations(),
 		"node-ip-webhook")
 
 	secretInformerFactory.Start(stopCh)
-	webhookInformerFactory.Start(stopCh)
+	//webhookInformerFactory.Start(stopCh)
 
 	// TODO: clean this up
 	go func() {

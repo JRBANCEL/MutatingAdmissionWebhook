@@ -1,4 +1,4 @@
-package main
+package webhook
 
 import (
 	"fmt"
@@ -39,7 +39,7 @@ type WebhookController struct {
 }
 
 // NewWebhookController returns a new WebhookController.
-func NewWebhookController(
+func NewController(
 	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
 	secretNamespace string,
