@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"net"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
-
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	corev1 "k8s.io/api/core/v1"
 	"math/big"
 	"time"
 )
@@ -22,14 +20,11 @@ const (
 	keyKey = "key.pem"
 )
 
-func generateCertificate(hosts []string) ([]byte, []byte, error) {
+func generateCertificate(hosts []string, notBefore, notAfter time.Time) ([]byte, []byte, error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
-
-	notBefore := time.Now().Add(-5 * time.Minute)
-	notAfter := notBefore.Add(2 * 30 * 24 * time.Hour)
 
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
@@ -58,7 +53,6 @@ func generateCertificate(hosts []string) ([]byte, []byte, error) {
 		}
 	}
 
-	klog.Infof("DNS Names: %v", template.DNSNames)
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create the certificate: %w", err)
@@ -77,8 +71,11 @@ func generateCertificate(hosts []string) ([]byte, []byte, error) {
 	return certBuf.Bytes(), keyBuf.Bytes(), nil
 }
 
-func generateSecretData() (map[string][]byte, error) {
-	certPEM, keyPEM, err := generateCertificate([]string{"webhook", "webhook.node-ip-webhook", "webhook.node-ip-webhook.svc", ".webhook.node-ip-webhook.svc.cluster.local"})
+func generateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error) {
+	certPEM, keyPEM, err := generateCertificate(
+		[]string{"webhook", "webhook.node-ip-webhook", "webhook.node-ip-webhook.svc", ".webhook.node-ip-webhook.svc.cluster.local"},
+		notBefore,
+		notAfter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}

@@ -18,6 +18,10 @@ import (
 )
 
 var (
+	// notBefore and notAfter define when a new Secret is valid
+	notBefore = func() time.Time { return time.Now().Add(-5 * time.Minute) }
+	notAfter = func() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
+
 	// expirationThreshold defines how long before its expiration a Secret
 	// should be refreshed.
 	expirationThreshold = 30 * 24 * time.Hour
@@ -134,9 +138,9 @@ func (c *SecretController) handleObject(obj interface{}) {
 				object.GetName() == c.secretName {
 			c.workQueue.Add(struct{}{})
 		}
-	} else {
-		klog.Infof("Ignoring: %s/%s", object.GetNamespace(), object.GetName())
-	}
+	}// else {
+	//	klog.Infof("Ignoring: %s/%s", object.GetNamespace(), object.GetName())
+	//}
 }
 
 // reconcileSecret reconcile the current state of the Secret with its desired state.
@@ -153,11 +157,7 @@ func (c *SecretController) reconcileSecret() error {
 
 	// If the Secret is close to expiration, it needs to be refreshed
 	durationBeforeExpiration, err := getDurationBeforeExpiration(secret)
-	if err != nil {
-		klog.Infof("The certificate expiration couldn't be determined, refreshing it.")
-		return c.updateSecret(secret)
-	}
-	if durationBeforeExpiration < expirationThreshold {
+	if err != nil || durationBeforeExpiration < expirationThreshold {
 		klog.Infof("The certificate is expiring soon (%v), refreshing it.", durationBeforeExpiration)
 		return c.updateSecret(secret)
 	}
@@ -167,7 +167,7 @@ func (c *SecretController) reconcileSecret() error {
 }
 
 func (c *SecretController) createSecret() error {
-	data, err := generateSecretData()
+	data, err := generateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)
 	}
@@ -184,7 +184,7 @@ func (c *SecretController) createSecret() error {
 }
 
 func (c *SecretController) updateSecret(secret *corev1.Secret) error {
-	data, err := generateSecretData()
+	data, err := generateSecretData(notBefore(), notAfter())
 	if err != nil {
 		return fmt.Errorf("failed to generate the Secret data: %w", err)
 	}
@@ -194,4 +194,3 @@ func (c *SecretController) updateSecret(secret *corev1.Secret) error {
 	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Update(secret)
 	return err
 }
-
