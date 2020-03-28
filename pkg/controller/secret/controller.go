@@ -58,16 +58,27 @@ func NewController(
 		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Controller"),
 	}
 
-	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleObject,
-		UpdateFunc: func(old, new interface{}) {
-			// Even if old and new are the same objects, expiration needs to be handled.
-			controller.handleObject(new)
-		},
-		DeleteFunc: controller.handleObject,
-	})
+	secretInformer.Informer().AddEventHandler(createSecretEventHandler(controller))
 
 	return controller
+}
+
+func createSecretEventHandler(c *Controller) cache.ResourceEventHandler {
+	handleObject := func(obj interface{}) {
+		if object, ok := obj.(metav1.Object); ok {
+			// Ignore everything except the Secret being watched
+			if object.GetNamespace() == c.secretNamespace &&
+				object.GetName() == c.secretName {
+				c.workQueue.Add(struct{}{})
+			}
+		}
+	}
+	return &cache.ResourceEventHandlerFuncs{
+		AddFunc: handleObject,
+		// Even if the Secret hasn't changed, the expiration must be checked
+		UpdateFunc: func(oldObj, newObj interface{}) { handleObject(newObj) },
+		DeleteFunc: handleObject,
+	}
 }
 
 // Run will set up the event handlers for types we are interested in, as well
@@ -120,29 +131,14 @@ func (c *Controller) processNextWorkItem() bool {
 		if err := c.reconcileSecret(); err != nil {
 			// Requeue for retry
 			c.workQueue.AddRateLimited(struct {}{})
-			klog.Errorf("Failed to reconcile '%s/%s': %v", c.secretNamespace, c.secretName, err)
+			klog.Errorf("Failed to reconcile the Secret '%s/%s': %v", c.secretNamespace, c.secretName, err)
 		}
 		// Remove from the queue
 		c.workQueue.Forget(obj)
-		klog.Infof("Successfully reconciled '%s/%s'", c.secretNamespace, c.secretName)
+		klog.Infof("Successfully reconciled the Secret '%s/%s'", c.secretNamespace, c.secretName)
 	}()
 
 	return true
-}
-
-// handleObject decides what to do with the provided object.
-// If the object is the Secret this controller is in charge of then an item is
-// enqueued to trigger reconciliation; otherwise, nothing is done.
-func (c *Controller) handleObject(obj interface{}) {
-	if object, ok := obj.(metav1.Object); ok {
-		// Ignore everything except the Secret
-		if object.GetNamespace() == c.secretNamespace &&
-				object.GetName() == c.secretName {
-			c.workQueue.Add(struct{}{})
-		}
-	}// else {
-	//	klog.Infof("Ignoring: %s/%s", object.GetNamespace(), object.GetName())
-	//}
 }
 
 // reconcileSecret reconcile the current state of the Secret with its desired state.

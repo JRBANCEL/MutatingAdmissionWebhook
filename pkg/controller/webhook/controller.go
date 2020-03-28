@@ -171,11 +171,11 @@ func (c *Controller) processNextWorkItem() bool {
 		if err := c.reconcileWebhook(); err != nil {
 			// Requeue for retry
 			c.workQueue.AddRateLimited(struct{}{})
-			klog.Errorf("Failed to reconcile '%s/%s': %v", c.secretNamespace, c.secretName, err)
+			klog.Errorf("Failed to reconcile the Webhook '%s': %v", c.webhookName, err)
 		}
 		// Remove from the queue
 		c.workQueue.Forget(obj)
-		klog.Infof("Successfully reconciled '%s/%s'", c.secretNamespace, c.secretName)
+		klog.Infof("Successfully reconciled the Webhook '%s'", c.webhookName)
 	}()
 
 	return true
