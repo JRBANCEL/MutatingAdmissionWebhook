@@ -16,8 +16,8 @@ import (
 
 const (
 	secretNamespace = "foo"
-	secretName = "bar"
-	webhookName = "whatever"
+	secretName      = "bar"
+	webhookName     = "whatever"
 )
 
 var (
@@ -100,9 +100,9 @@ func TestUpdateWebhookIfItExistsButDoesntMatchTheSecret(t *testing.T) {
 type fixture struct {
 	t *testing.T
 
-	kubeClient    *k8sfake.Clientset
-	secrets []*corev1.Secret
-	webhooks []*admiv1beta1.MutatingWebhookConfiguration
+	kubeClient *k8sfake.Clientset
+	secrets    []*corev1.Secret
+	webhooks   []*admiv1beta1.MutatingWebhookConfiguration
 }
 
 func newFixture(t *testing.T) *fixture {

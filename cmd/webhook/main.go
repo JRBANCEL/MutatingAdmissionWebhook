@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	admiv1 "k8s.io/api/admission/v1"
+	admiv1beta1 "k8s.io/api/admission/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,13 +18,14 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 
-	"gomodules.xyz/jsonpatch/v3"
 	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/certificate"
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/constants"
+	"gomodules.xyz/jsonpatch/v3"
 )
 
 const (
 	jsonContentType = `application/json`
-	envVarName = "DD_AGENT_HOST"
+	envVarName      = "DD_AGENT_HOST"
 )
 
 var (
@@ -47,17 +48,16 @@ func main() {
 	server := &http.Server{
 		Addr:    ":10250",
 		Handler: mux,
-		TLSConfig:&tls.Config{
+		TLSConfig: &tls.Config{
 			GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				// TODO: use constants
-				secret, err := client.CoreV1().Secrets("node-ip-webhook").Get("webhook-cert", metav1.GetOptions{})
+				secret, err := client.CoreV1().Secrets(constants.Namespace).Get(constants.SecretName, metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("Failed to get Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
+					log.Fatalf("Failed to get Secret %s/%s : %v", constants.Namespace, constants.SecretName, err)
 				}
 
 				cert, err := certificate.ParseSecretData(secret.Data)
 				if err != nil {
-					log.Fatalf("Failed to parse Secret %s/%s : %v", "node-ip-webhook", "webhook-cert", err)
+					log.Fatalf("Failed to parse Secret %s/%s : %v", constants.Namespace, constants.SecretName, err)
 				}
 				return &cert, nil
 			},
@@ -87,7 +87,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var admissionReviewReq admiv1.AdmissionReview
+	var admissionReviewReq admiv1beta1.AdmissionReview
 	if _, _, err := deserializer.Decode(body, nil, &admissionReviewReq); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		log.Printf("could not deserialize request: %v", err)
@@ -98,12 +98,12 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var admissionReviewResp admiv1.AdmissionReview
+	var admissionReviewResp admiv1beta1.AdmissionReview
 	resp, err := Mutate(admissionReviewReq.Request)
 	if err != nil {
 		log.Printf("Failed to mutate: %v", err) // TODO(bancel): better message
-		admissionReviewResp = admiv1.AdmissionReview{
-			Response: &admiv1.AdmissionResponse{
+		admissionReviewResp = admiv1beta1.AdmissionReview{
+			Response: &admiv1beta1.AdmissionResponse{
 				Result: &metav1.Status{
 					Message: err.Error(),
 				},
@@ -111,7 +111,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 	} else {
-		admissionReviewResp = admiv1.AdmissionReview{
+		admissionReviewResp = admiv1beta1.AdmissionReview{
 			Response: resp,
 		}
 	}
@@ -125,13 +125,13 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func Mutate(req *admiv1.AdmissionRequest) (*admiv1.AdmissionResponse, error) {
+func Mutate(req *admiv1beta1.AdmissionRequest) (*admiv1beta1.AdmissionResponse, error) {
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
 		return nil, fmt.Errorf("failed to decode raw object: %w", err)
 	}
 
-	resp := &admiv1.AdmissionResponse{Allowed: true}
+	resp := &admiv1beta1.AdmissionResponse{Allowed: true}
 
 	if !shouldMutate(pod) {
 		log.Printf("Skipping Pod %s/%s because it is not a Knative Pod", req.Namespace, req.Name)
@@ -149,7 +149,7 @@ func Mutate(req *admiv1.AdmissionRequest) (*admiv1.AdmissionResponse, error) {
 		found := false
 		for _, env := range container.Env {
 			if env.Name == envVarName {
-				klog.Warningf("Container %s already contains an environment variable entry for %s. Keeping the original value.", container, envVarName)
+				klog.Warningf("Container %q already contains an environment variable entry for %q. Keeping the original value.", container, envVarName)
 				found = true
 				break
 			}
@@ -158,11 +158,11 @@ func Mutate(req *admiv1.AdmissionRequest) (*admiv1.AdmissionResponse, error) {
 		// Add the environment variable definition
 		if !found {
 			pod.Spec.Containers[i].Env = append(pod.Spec.Containers[i].Env, corev1.EnvVar{
-				Name:      envVarName,
-				Value:     "",
+				Name:  envVarName,
+				Value: "",
 				ValueFrom: &corev1.EnvVarSource{
 					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath:  "status.hostIP",
+						FieldPath: "status.hostIP",
 					},
 				},
 			})
@@ -186,8 +186,8 @@ func Mutate(req *admiv1.AdmissionRequest) (*admiv1.AdmissionResponse, error) {
 
 // shouldMutate returns whether the provided Pod should be mutated.
 func shouldMutate(pod corev1.Pod) bool {
-	for k, _ := range pod.ObjectMeta.Labels {
-		if strings.HasPrefix(k, "serving.knative.dev/") {
+	for label := range pod.ObjectMeta.Labels {
+		if strings.HasPrefix(label, "serving.knative.dev/") {
 			return true
 		}
 	}

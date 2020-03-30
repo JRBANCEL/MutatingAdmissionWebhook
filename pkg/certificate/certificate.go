@@ -12,6 +12,8 @@ import (
 	"math/big"
 	"net"
 	"time"
+
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/constants"
 )
 
 const (
@@ -72,7 +74,7 @@ func generateCertificate(hosts []string, notBefore, notAfter time.Time) ([]byte,
 
 func GenerateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error) {
 	certPEM, keyPEM, err := generateCertificate(
-		[]string{"webhook", "webhook.node-ip-webhook", "webhook.node-ip-webhook.svc", ".webhook.node-ip-webhook.svc.cluster.local"},
+		hosts(),
 		notBefore,
 		notAfter)
 	if err != nil {
@@ -103,9 +105,18 @@ func GetDurationBeforeExpiration(data map[string][]byte) (time.Duration, error) 
 }
 
 func ParseSecretData(data map[string][]byte) (tls.Certificate, error) {
-	return tls.X509KeyPair(data["cert.pem"], data["key.pem"])
+	return tls.X509KeyPair(data[certKey], data[keyKey])
 }
 
 func GetCABundle(data map[string][]byte) []byte {
 	return data[certKey]
+}
+
+func hosts() []string {
+	return []string{
+		constants.ServiceName,
+		constants.ServiceName + "." + constants.Namespace,
+		constants.ServiceName + "." + constants.Namespace + ".svc",
+		constants.ServiceName + "." + constants.Namespace + ".svc.cluster.local",
+	}
 }

@@ -2,9 +2,11 @@ package webhook
 
 import (
 	"fmt"
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/certificate"
+	"strings"
 	"time"
 
-	admissionv1 "k8s.io/api/admissionregistration/v1beta1"
+	admiv1beta1 "k8s.io/api/admissionregistration/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,7 +40,7 @@ type Controller struct {
 	workQueue workqueue.RateLimitingInterface
 }
 
-// NewWebhookController returns a new Controller.
+// NewController returns a new Webhook Controller.
 func NewController(
 	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
@@ -55,7 +57,7 @@ func NewController(
 		webhookName:     webhookName,
 		webhooksLister:  webhookInformer.Lister(),
 		webhooksSynced:  webhookInformer.Informer().HasSynced,
-		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Controller"),
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "WebhookController"),
 	}
 
 	secretInformer.Informer().AddEventHandler(createSecretEventHandler(controller))
@@ -106,8 +108,8 @@ func createWebhookEventHandler(c *Controller) cache.ResourceEventHandler {
 		// matches our expectation.
 		AddFunc: handleObject,
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newWebhook := newObj.(*admissionv1.MutatingWebhookConfiguration)
-			oldWebhook := oldObj.(*admissionv1.MutatingWebhookConfiguration)
+			newWebhook := newObj.(*admiv1beta1.MutatingWebhookConfiguration)
+			oldWebhook := oldObj.(*admiv1beta1.MutatingWebhookConfiguration)
 			if newWebhook.ResourceVersion == oldWebhook.ResourceVersion {
 				return
 			}
@@ -186,7 +188,7 @@ func (c *Controller) reconcileWebhook() error {
 	secret, err := c.secretsLister.Secrets(c.secretNamespace).Get(c.secretName)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return fmt.Errorf("the Secret '%s/%s' was not found, aborting the reconciliation: %v", c.secretNamespace, c.secretName, err)
+			return fmt.Errorf("the Secret '%s/%s' was not found, aborting the reconciliation", c.secretNamespace, c.secretName)
 		}
 		return err
 	}
@@ -204,7 +206,7 @@ func (c *Controller) reconcileWebhook() error {
 }
 
 func (c *Controller) createWebhook(secret *corev1.Secret) error {
-	webhook := &admissionv1.MutatingWebhookConfiguration{
+	webhook := &admiv1beta1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: c.webhookName,
 		},
@@ -214,35 +216,35 @@ func (c *Controller) createWebhook(secret *corev1.Secret) error {
 	return err
 }
 
-func (c *Controller) updateWebhook(secret *corev1.Secret, webhook *admissionv1.MutatingWebhookConfiguration) error {
+func (c *Controller) updateWebhook(secret *corev1.Secret, webhook *admiv1beta1.MutatingWebhookConfiguration) error {
 	webhook = webhook.DeepCopy()
 	webhook.Webhooks = c.newWebhooks(secret)
 	_, err := c.kubeClient.AdmissionregistrationV1beta1().MutatingWebhookConfigurations().Update(webhook)
 	return err
 }
 
-func (c *Controller) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWebhook {
-	failurePolicy := admissionv1.Fail
+func (c *Controller) newWebhooks(secret *corev1.Secret) []admiv1beta1.MutatingWebhook {
+	failurePolicy := admiv1beta1.Fail
 	servicePath := "/mutate"
 	servicePort := int32(443)
-	return []admissionv1.MutatingWebhook{
+	return []admiv1beta1.MutatingWebhook{
 		{
-			Name: "node.ip.webhook",
-			ClientConfig: admissionv1.WebhookClientConfig{
-				Service: &admissionv1.ServiceReference{
-					Namespace: "node-ip-webhook",
+			Name: strings.ReplaceAll(c.webhookName, "-", "."),
+			ClientConfig: admiv1beta1.WebhookClientConfig{
+				Service: &admiv1beta1.ServiceReference{
+					Namespace: c.secretNamespace,
 					Name:      "webhook",
 					Path:      &servicePath,
 					Port:      &servicePort,
 				},
-				CABundle: secret.Data["cert.pem"],
+				CABundle: certificate.GetCABundle(secret.Data),
 			},
-			Rules: []admissionv1.RuleWithOperations{
+			Rules: []admiv1beta1.RuleWithOperations{
 				{
-					Operations: []admissionv1.OperationType{
-						admissionv1.Create,
+					Operations: []admiv1beta1.OperationType{
+						admiv1beta1.Create,
 					},
-					Rule: admissionv1.Rule{
+					Rule: admiv1beta1.Rule{
 						APIGroups:   []string{""},
 						APIVersions: []string{"v1"},
 						Resources:   []string{"pods"},
@@ -261,9 +263,6 @@ func (c *Controller) newWebhooks(secret *corev1.Secret) []admissionv1.MutatingWe
 			},
 			//ObjectSelector:          nil,
 			//SideEffects:             admissionregistration.SideEffectClassSome, // TODO: handle DryRun
-			//TimeoutSeconds:          nil,
-			//AdmissionReviewVersions: nil,
-			//ReinvocationPolicy:      nil,
 		},
 	}
 }

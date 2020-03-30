@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"golang.org/x/sync/errgroup"
 	"time"
 
 	kubeinformers "k8s.io/client-go/informers"
@@ -8,20 +10,15 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 
+	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/constants"
 	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/controller/secret"
 	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/controller/webhook"
 )
 
-const (
-	secretNamespace = "node-ip-webhook"
-	secretName = "webhook-cert"
-)
-
 func main() {
-
-	// set up signals so we handle the first shutdown signal gracefully
-	//stopCh := signals.SetupSignalHandler()
-	stopCh := make(<-chan struct{})
+	// TODO: use signals to close this channel
+	stopCh := make(chan struct{})
+	defer close(stopCh)
 
 	config, err := clientcmd.BuildConfigFromFlags("", "")
 	if err != nil {
@@ -35,37 +32,31 @@ func main() {
 
 	// Create an informer factory scoped to secretNamespace
 	// because it is the only namespace accessible by the service account.
-	secretInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
+	informerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
 		client,
-		1 * time.Hour,
-		kubeinformers.WithNamespace(secretNamespace))
+		24*time.Hour,
+		kubeinformers.WithNamespace(constants.Namespace))
 
 	secretController := secret.NewController(
 		client,
-		secretInformerFactory.Core().V1().Secrets(),
-		secretNamespace,
-		secretName)
+		informerFactory.Core().V1().Secrets(),
+		constants.Namespace,
+		constants.SecretName)
 
-	//webhookInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(
-	//	client,
-	//	1 * time.Hour,
-	//	kubeinformers.WithNamespace(secretNamespace))
 	webhookController := webhook.NewController(
 		client,
-		secretInformerFactory.Core().V1().Secrets(),
-		secretNamespace,
-		secretName,
-		secretInformerFactory.Admissionregistration().V1beta1().MutatingWebhookConfigurations(),
-		"node-ip-webhook")
+		informerFactory.Core().V1().Secrets(),
+		constants.Namespace,
+		constants.SecretName,
+		informerFactory.Admissionregistration().V1beta1().MutatingWebhookConfigurations(),
+		constants.WebhookName)
 
-	secretInformerFactory.Start(stopCh)
-	//webhookInformerFactory.Start(stopCh)
+	informerFactory.Start(stopCh)
 
-	// TODO: clean this up
-	go func() {
-		webhookController.Run(stopCh)
-	}()
-	if err = secretController.Run(stopCh); err != nil {
-		klog.Fatalf("Error running the controller: %s", err.Error())
+	eg, _ := errgroup.WithContext(context.Background())
+	eg.Go(func() error { return webhookController.Run(stopCh) })
+	eg.Go(func() error { return secretController.Run(stopCh) })
+	if err = eg.Wait(); err != nil {
+		klog.Fatalf("Error running a controller: %v", err)
 	}
 }

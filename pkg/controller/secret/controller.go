@@ -22,7 +22,7 @@ import (
 var (
 	// notBefore and notAfter define when a new Secret is valid
 	notBefore = func() time.Time { return time.Now().Add(-5 * time.Minute) }
-	notAfter = func() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
+	notAfter  = func() time.Time { return time.Now().Add(365 * 24 * time.Hour) }
 
 	// expirationThreshold defines how long before its expiration a Secret
 	// should be refreshed.
@@ -43,7 +43,7 @@ type Controller struct {
 	workQueue workqueue.RateLimitingInterface
 }
 
-// NewController returns a new Controller.
+// NewController returns a new Secret Controller.
 func NewController(
 	kubeClient kubernetes.Interface,
 	secretInformer coreinformers.SecretInformer,
@@ -55,7 +55,7 @@ func NewController(
 		secretName:      secretName,
 		secretsLister:   secretInformer.Lister(),
 		secretsSynced:   secretInformer.Informer().HasSynced,
-		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Controller"),
+		workQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "SecretController"),
 	}
 
 	secretInformer.Informer().AddEventHandler(createSecretEventHandler(controller))
@@ -101,7 +101,7 @@ func (c *Controller) Run(stopCh <-chan struct{}) error {
 	go wait.Until(c.runWorker, time.Second, stopCh)
 
 	// Trigger a reconciliation to create the Secret if it doesn't exist
-	c.workQueue.Add(struct {}{})
+	c.workQueue.Add(struct{}{})
 
 	klog.Info("Successfully started!")
 	<-stopCh
@@ -130,7 +130,7 @@ func (c *Controller) processNextWorkItem() bool {
 		defer c.workQueue.Done(obj)
 		if err := c.reconcileSecret(); err != nil {
 			// Requeue for retry
-			c.workQueue.AddRateLimited(struct {}{})
+			c.workQueue.AddRateLimited(struct{}{})
 			klog.Errorf("Failed to reconcile the Secret '%s/%s': %v", c.secretNamespace, c.secretName, err)
 		}
 		// Remove from the queue
@@ -172,10 +172,10 @@ func (c *Controller) createSecret() error {
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace:                  c.secretNamespace,
-			Name:                       c.secretName,
+			Namespace: c.secretNamespace,
+			Name:      c.secretName,
 		},
-		Data:data,
+		Data: data,
 	}
 	_, err = c.kubeClient.CoreV1().Secrets(c.secretNamespace).Create(secret)
 	return err

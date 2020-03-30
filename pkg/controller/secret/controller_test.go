@@ -16,7 +16,7 @@ import (
 
 const (
 	secretNamespace = "foo"
-	secretName = "bar"
+	secretName      = "bar"
 )
 
 var (
@@ -111,8 +111,8 @@ func TestRefreshSecretIfExistsAndIsExpiringSoon(t *testing.T) {
 type fixture struct {
 	t *testing.T
 
-	kubeClient    *k8sfake.Clientset
-	secrets []*corev1.Secret
+	kubeClient *k8sfake.Clientset
+	secrets    []*corev1.Secret
 }
 
 func newFixture(t *testing.T) *fixture {
