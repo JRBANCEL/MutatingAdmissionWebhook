@@ -44,7 +44,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/mutate", MutateFunc)
+	mux.HandleFunc("/mutate", mutateFunc)
 	server := &http.Server{
 		Addr:    ":10250",
 		Handler: mux,
@@ -66,7 +66,7 @@ func main() {
 	log.Fatal(server.ListenAndServeTLS("", ""))
 }
 
-func MutateFunc(w http.ResponseWriter, r *http.Request) {
+func mutateFunc(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		log.Printf("invalid method %s, only POST requests are allowed", r.Method)
@@ -99,7 +99,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var admissionReviewResp admiv1beta1.AdmissionReview
-	resp, err := Mutate(admissionReviewReq.Request)
+	resp, err := mutate(admissionReviewReq.Request)
 	if err != nil {
 		log.Printf("Failed to mutate: %v", err) // TODO(bancel): better message
 		admissionReviewResp = admiv1beta1.AdmissionReview{
@@ -125,7 +125,7 @@ func MutateFunc(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func Mutate(req *admiv1beta1.AdmissionRequest) (*admiv1beta1.AdmissionResponse, error) {
+func mutate(req *admiv1beta1.AdmissionRequest) (*admiv1beta1.AdmissionResponse, error) {
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
 		return nil, fmt.Errorf("failed to decode raw object: %w", err)
