@@ -225,6 +225,7 @@ func (c *Controller) updateWebhook(secret *corev1.Secret, webhook *admiv1beta1.M
 
 func (c *Controller) newWebhooks(secret *corev1.Secret) []admiv1beta1.MutatingWebhook {
 	failurePolicy := admiv1beta1.Fail
+	sideEffects := admiv1beta1.SideEffectClassNone
 	servicePath := "/mutate"
 	servicePort := int32(443)
 	return []admiv1beta1.MutatingWebhook{
@@ -261,8 +262,16 @@ func (c *Controller) newWebhooks(secret *corev1.Secret) []admiv1beta1.MutatingWe
 					},
 				},
 			},
-			//ObjectSelector:          nil,
-			//SideEffects:             admissionregistration.SideEffectClassSome, // TODO: handle DryRun
+			ObjectSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key: "serving.knative.dev/service",
+						Operator:metav1.LabelSelectorOpExists,
+						Values: []string{},
+					},
+				},
+			},
+			SideEffects: &sideEffects,
 		},
 	}
 }

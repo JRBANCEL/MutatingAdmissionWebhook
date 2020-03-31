@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
-	"net/http"
-	"strings"
-
 	admiv1beta1 "k8s.io/api/admission/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,6 +13,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+	"log"
+	"net/http"
 
 	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/certificate"
 	"github.com/JRBANCEL/MutatingAdmissionWebhook/pkg/constants"
@@ -133,12 +131,6 @@ func mutate(req *admiv1beta1.AdmissionRequest) (*admiv1beta1.AdmissionResponse, 
 
 	resp := &admiv1beta1.AdmissionResponse{Allowed: true}
 
-	if !shouldMutate(pod) {
-		log.Printf("Skipping Pod %s/%s because it is not a Knative Pod", req.Namespace, req.Name)
-		return resp, nil
-	}
-	log.Printf("Mutating Pod %s/%s because it is a Knative Pod", req.Namespace, req.Name)
-
 	for i, container := range pod.Spec.Containers {
 		// Skip the Knative Queue Proxy container
 		if container.Name == "queue-proxy" {
@@ -182,14 +174,4 @@ func mutate(req *admiv1beta1.AdmissionRequest) (*admiv1beta1.AdmissionResponse, 
 		return nil, fmt.Errorf("failed to encode the JSON patch: %w", err)
 	}
 	return resp, nil
-}
-
-// shouldMutate returns whether the provided Pod should be mutated.
-func shouldMutate(pod corev1.Pod) bool {
-	for label := range pod.ObjectMeta.Labels {
-		if strings.HasPrefix(label, "serving.knative.dev/") {
-			return true
-		}
-	}
-	return false
 }
