@@ -2,10 +2,10 @@ package constants
 
 const (
 	// Namespace is the Kubernetes namespace where the Webhook controllers and implementation live
-	Namespace   = "node-ip-webhook"
+	Namespace = "node-ip-webhook"
 
 	// SecretName is the name of the Kubernetes Secret containing the Webhook TLS certificate inside `Namespace`
-	SecretName  = "webhook-cert"
+	SecretName = "webhook-cert"
 
 	// WebhookName is the name of the Kubernetes Webhook (cluster-scoped)
 	WebhookName = "node-ip-webhook"

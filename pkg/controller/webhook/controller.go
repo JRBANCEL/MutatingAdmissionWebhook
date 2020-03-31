@@ -265,9 +265,9 @@ func (c *Controller) newWebhooks(secret *corev1.Secret) []admiv1beta1.MutatingWe
 			ObjectSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key: "serving.knative.dev/service",
-						Operator:metav1.LabelSelectorOpExists,
-						Values: []string{},
+						Key:      "serving.knative.dev/service",
+						Operator: metav1.LabelSelectorOpExists,
+						Values:   []string{},
 					},
 				},
 			},
