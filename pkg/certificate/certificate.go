@@ -72,6 +72,7 @@ func generateCertificate(hosts []string, notBefore, notAfter time.Time) ([]byte,
 	return certBuf.Bytes(), keyBuf.Bytes(), nil
 }
 
+// GenerateSecretData generates the content of Secret.Data of the Webhook Secret.
 func GenerateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error) {
 	certPEM, keyPEM, err := generateCertificate(
 		hosts(),
@@ -87,6 +88,8 @@ func GenerateSecretData(notBefore, notAfter time.Time) (map[string][]byte, error
 	return data, nil
 }
 
+// GetDurationBeforeExpiration returns the time.Duration before the TLS certificate contained in the provided
+// Secret.Data expires.
 func GetDurationBeforeExpiration(data map[string][]byte) (time.Duration, error) {
 	certPEM, ok := data[certKey]
 	if !ok {
@@ -104,10 +107,12 @@ func GetDurationBeforeExpiration(data map[string][]byte) (time.Duration, error) 
 	return -time.Since(cert.NotAfter), nil
 }
 
+// ParseSecretData return the tls.Certificate contained in the provided Secret.Data.
 func ParseSecretData(data map[string][]byte) (tls.Certificate, error) {
 	return tls.X509KeyPair(data[certKey], data[keyKey])
 }
 
+// GetCABundle returns the CA certificate contained in the provided Secret.Data.
 func GetCABundle(data map[string][]byte) []byte {
 	return data[certKey]
 }
