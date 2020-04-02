@@ -11,7 +11,6 @@ spec:
     - name: DD_AGENT_HOST
       valueFrom:
         fieldRef:
-          apiVersion: v1
           fieldPath: status.hostIP
 ```
 
