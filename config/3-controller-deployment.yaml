@@ -19,3 +19,10 @@ spec:
       containers:
         - name: controller
           image: github.com/JRBANCEL/MutatingAdmissionWebhook/cmd/controller
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
