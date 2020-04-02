@@ -24,3 +24,16 @@ Webhooks must expose an HTTPS endpoint, therefore a TLS certificate must be used
 * [pkg/controller/secret/controller.go](https://github.com/JRBANCEL/MutatingAdmissionWebhook/blob/master/pkg/controller/secret/controller.go): a controller ensuring that there is a Kubernetes Secret containing a valid self-signed TLS certficate at all time: creates it if it doesn't exist, refreshes it when it is about to expire, etc...
 * [pkg/controller/webhook/controller.go](https://github.com/JRBANCEL/MutatingAdmissionWebhook/blob/master/pkg/controller/webhook/controller.go): a controller ensuring that there is a `mutatingwebhookconfigurations.admissionregistration.k8s.io` configured such that its `webhooks.admissionReviewVersions.clientConfig.caBundle` matches the Kubernetes Secret described above.
 * [cmd/webhook/main.go](https://github.com/JRBANCEL/MutatingAdmissionWebhook/blob/master/cmd/webhook/main.go): exposes an HTTPS endpoints with a TLS certificate matching the Kubernetes Secret described above.
+
+# Installation
+Using [ko](https://github.com/google/ko):
+
+```
+ko apply -f config
+```
+
+Everything (except the MutatingWebhookConfiguration which is cluster scoped) is installed under the `node-ip-webhook` namespace and can be uninstalled via:
+
+```
+kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io node-ip-webhook && kubectl delete namespace node-ip-webhook
+```
