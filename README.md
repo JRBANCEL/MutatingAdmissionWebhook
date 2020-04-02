@@ -35,5 +35,6 @@ ko apply -f config
 Everything (except the MutatingWebhookConfiguration which is cluster scoped) is installed under the `node-ip-webhook` namespace and can be uninstalled via:
 
 ```
-kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io node-ip-webhook && kubectl delete namespace node-ip-webhook
+kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io node-ip-webhook
+kubectl delete namespace node-ip-webhook
 ```
