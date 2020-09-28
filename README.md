@@ -15,7 +15,9 @@ spec:
 ```
 
 # Why?
-[Datadog](https://www.datadoghq.com/) instrumentation library needs to communicate with the Datadog Agent located on the same node, [see documentation](https://docs.datadoghq.com/developers/dogstatsd/?tab=kubernetes#send-statsd-metrics-to-the-agent). Unfortunately, Knative doesn't support the Downward API ([yet](https://github.com/knative/serving/issues/4190)). Dynamically injecting the environment variable is a workaround.
+[Datadog](https://www.datadoghq.com/) instrumentation library needs to communicate with the Datadog Agent located on the same node, [see documentation](https://docs.datadoghq.com/developers/dogstatsd/?tab=kubernetes#send-statsd-metrics-to-the-agent). ~~Unfortunately, Knative doesn't support the Downward API ([yet](https://github.com/knative/serving/issues/4190))~~. Dynamically injecting the environment variable is a workaround.
+
+[Update] Datadog now provides a Webhook doing exactly this: https://docs.datadoghq.com/agent/cluster_agent/admission_controller/ 
 
 # How?
 The Webhook intercepts Pod `CREATE` calls to the Kubernetes API Server and inserts the environment variable in the Pod Spec. This is the easy part and is defined in [cmd/webhook/main.go](https://github.com/JRBANCEL/MutatingAdmissionWebhook/blob/master/cmd/webhook/main.go).
